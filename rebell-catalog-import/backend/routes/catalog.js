@@ -1,0 +1,129 @@
+import express from 'express'
+import multer from 'multer'
+import { v4 as uuidv4 } from 'uuid'
+import { extractFromPdf, extractFromImage, extractFromDocx, extractFromUrl } from '../services/extractor.js'
+import { extractCatalog, enrichProducts } from '../services/aiAgent.js'
+
+const router = express.Router()
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
+
+// In-memory job store
+const jobs = new Map()
+
+function log(jobId, type, msg) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  job.log.push({ ts: new Date().toISOString(), type, msg })
+}
+
+// POST /api/catalog/extract
+router.post('/extract', upload.single('file'), async (req, res, next) => {
+  try {
+    const { inputType, url, text, merchantName } = req.body
+    const jobId = uuidv4()
+
+    jobs.set(jobId, { jobId, status: 'queued', log: [], catalog: null })
+    res.json({ jobId, status: 'queued' })
+
+    // Run async
+    runJob(jobId, inputType, req.file, url, text, merchantName).catch(err => {
+      log(jobId, 'error', err.message || 'Unknown error')
+      const job = jobs.get(jobId)
+      if (job) job.status = 'failed'
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+async function runJob(jobId, inputType, file, url, text, merchantName) {
+  const job = jobs.get(jobId)
+  job.status = 'processing'
+
+  log(jobId, 'info', `Job started — input type: ${inputType}`)
+
+  let aiInput
+
+  try {
+    if (inputType === 'pdf') {
+      log(jobId, 'info', 'Extracting text from PDF...')
+      const result = await extractFromPdf(file.buffer)
+      if (result.error) throw new Error(result.error)
+      log(jobId, 'success', `Text extracted — ${result.text.length} characters (${result.pageCount} pages)`)
+      aiInput = { type: 'text', content: result.text }
+
+    } else if (inputType === 'image') {
+      const ext = file.originalname.split('.').pop().toLowerCase()
+
+      if (ext === 'docx') {
+        log(jobId, 'info', 'Extracting text from Word document...')
+        const result = await extractFromDocx(file.buffer)
+        log(jobId, 'success', `Text extracted — ${result.text.length} characters`)
+        aiInput = { type: 'text', content: result.text }
+      } else {
+        log(jobId, 'info', 'Sending image to Claude Vision...')
+        const result = await extractFromImage(file.buffer, file.mimetype)
+        aiInput = { type: 'image', imageBase64: result.imageBase64, mimeType: result.mimeType }
+      }
+
+    } else if (inputType === 'url') {
+      log(jobId, 'info', `Extracting text from URL...`)
+      const result = await extractFromUrl(url)
+      if (result.error) throw new Error(result.error)
+      log(jobId, 'success', `Text extracted — ${result.text.length} characters`)
+      aiInput = { type: 'text', content: result.text }
+
+    } else if (inputType === 'text') {
+      log(jobId, 'info', 'Processing manual text input...')
+      log(jobId, 'success', `Text received — ${text.length} characters`)
+      aiInput = { type: 'text', content: text }
+
+    } else {
+      throw new Error(`Unknown input type: ${inputType}`)
+    }
+  } catch (err) {
+    log(jobId, 'error', err.message)
+    job.status = 'failed'
+    return
+  }
+
+  try {
+    log(jobId, 'info', 'Sending to Claude for catalog extraction...')
+    const catalog = await extractCatalog(aiInput, merchantName)
+
+    const totalProducts = catalog.categories.reduce((sum, cat) => sum + cat.products.length, 0)
+    log(jobId, 'success', `Catalog extracted — ${totalProducts} products across ${catalog.categories.length} categories`)
+
+    const needsDescriptions = catalog.categories.flatMap(c => c.products).filter(p => !p.description).length
+    if (needsDescriptions > 0) {
+      log(jobId, 'info', `Generating descriptions for ${needsDescriptions} products...`)
+      await enrichProducts(catalog)
+      log(jobId, 'success', 'Descriptions generated')
+    }
+
+    log(jobId, 'success', 'Done. Catalog ready.')
+    job.catalog = catalog
+    job.status = 'completed'
+  } catch (err) {
+    log(jobId, 'error', `AI service error: ${err.message}`)
+    job.status = 'failed'
+  }
+}
+
+// GET /api/catalog/job/:jobId
+router.get('/job/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found' })
+  res.json(job)
+})
+
+// POST /api/catalog/export
+router.post('/export', (req, res) => {
+  const catalog = req.body
+  const filename = `catalog_${catalog.merchantName ? catalog.merchantName.replace(/\s+/g, '_') : 'export'}_${Date.now()}.json`
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.setHeader('Content-Type', 'application/json')
+  res.send(JSON.stringify(catalog, null, 2))
+})
+
+export default router
