@@ -31,7 +31,8 @@ export async function extractFromDocx(fileBuffer) {
 export async function extractFromUrl(url) {
   try {
     const response = await axios.get(url, {
-      timeout: 10000,
+      timeout: 15000,
+      responseType: 'arraybuffer',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -39,7 +40,18 @@ export async function extractFromUrl(url) {
       },
     })
 
-    const $ = cheerio.load(response.data)
+    const contentType = response.headers['content-type'] || ''
+    const isPdf = contentType.includes('application/pdf') || url.split('?')[0].toLowerCase().endsWith('.pdf')
+
+    if (isPdf) {
+      const result = await extractFromPdf(Buffer.from(response.data))
+      if (result.error) return { text: null, error: result.error }
+      return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
+    }
+
+    const html = Buffer.from(response.data).toString('utf-8')
+
+    const $ = cheerio.load(html)
 
     // Remove noisy tags
     $('script, style, nav, footer, header, iframe, noscript, svg, button, form').remove()

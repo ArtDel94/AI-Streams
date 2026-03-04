@@ -61,7 +61,7 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
         log(jobId, 'success', `Text extracted — ${result.text.length} characters`)
         aiInput = { type: 'text', content: result.text }
       } else {
-        log(jobId, 'info', 'Sending image to Claude Vision...')
+        log(jobId, 'info', 'Sending image to AI Vision...')
         const result = await extractFromImage(file.buffer, file.mimetype)
         aiInput = { type: 'image', imageBase64: result.imageBase64, mimeType: result.mimeType }
       }
@@ -88,7 +88,7 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
   }
 
   try {
-    log(jobId, 'info', 'Sending to Claude for catalog extraction...')
+    log(jobId, 'info', 'Sending to AI for catalog extraction...')
     const catalog = await extractCatalog(aiInput, merchantName)
 
     const totalProducts = catalog.categories.reduce((sum, cat) => sum + cat.products.length, 0)
