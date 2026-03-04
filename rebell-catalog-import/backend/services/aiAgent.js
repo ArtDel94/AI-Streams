@@ -296,16 +296,55 @@ export async function extractCatalog(input, merchantName) {
     return catalog
   }
 
-  // Text: chunk if large, then merge results
+  // Text: chunk if large, extract all chunks in parallel, then merge
   const chunks = chunkText(input.content)
-  const results = []
-  for (const chunk of chunks) {
-    const catalog = await extractSingleChunk(chunk, merchantName)
-    if (catalog) results.push(catalog)
-  }
+  const rawResults = await Promise.all(chunks.map(chunk => extractSingleChunk(chunk, merchantName)))
+  const results = rawResults.filter(Boolean)
 
   if (results.length === 0) throw new Error('AI could not extract any items from the input.')
   return results.length === 1 ? results[0] : mergeCatalogs(results)
+}
+
+async function enrichBatch(batch, catalog) {
+  const batchInput = batch.map((item, idx) => ({
+    index: idx,
+    name: item.name,
+    category: item.category,
+    description: item.description,
+  }))
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 4096,
+      messages: [
+        { role: 'system', content: ENRICH_SYSTEM },
+        { role: 'user', content: JSON.stringify(batchInput) },
+      ],
+    })
+
+    const raw = response.choices[0]?.message?.content || ''
+    const results = safeParseJson(raw)
+
+    if (Array.isArray(results)) {
+      results.forEach(({ index, description, tags }) => {
+        const entry = batch[index]
+        if (!entry) return
+        const items = catalog.categories[entry.catIdx].items || catalog.categories[entry.catIdx].products
+        const item = items[entry.itemIdx]
+        if (!item.description && description) {
+          item.description = description
+          item.description_generated = true
+        }
+        if (Array.isArray(tags) && tags.length > 0) {
+          const existing = item.tags || []
+          item.tags = [...new Set([...existing, ...tags])]
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('Enrich batch failed:', err.message)
+  }
 }
 
 export async function enrichProducts(catalog) {
@@ -320,48 +359,11 @@ export async function enrichProducts(catalog) {
   if (toEnrich.length === 0) return
 
   const BATCH_SIZE = 20
+  const batches = []
   for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
-    const batch = toEnrich.slice(i, i + BATCH_SIZE)
-    const batchInput = batch.map((item, idx) => ({
-      index: idx,
-      name: item.name,
-      category: item.category,
-      description: item.description,
-    }))
-
-    try {
-      const response = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
-        max_tokens: 4096,
-        messages: [
-          { role: 'system', content: ENRICH_SYSTEM },
-          { role: 'user', content: JSON.stringify(batchInput) },
-        ],
-      })
-
-      const raw = response.choices[0]?.message?.content || ''
-      const results = safeParseJson(raw)
-
-      if (Array.isArray(results)) {
-        results.forEach(({ index, description, tags }) => {
-          const entry = batch[index]
-          if (!entry) return
-          const items = catalog.categories[entry.catIdx].items || catalog.categories[entry.catIdx].products
-          const item = items[entry.itemIdx]
-          // Only set description if item didn't have one
-          if (!item.description && description) {
-            item.description = description
-            item.description_generated = true
-          }
-          // Always merge generated tags with existing ones
-          if (Array.isArray(tags) && tags.length > 0) {
-            const existing = item.tags || []
-            item.tags = [...new Set([...existing, ...tags])]
-          }
-        })
-      }
-    } catch (err) {
-      console.warn('Enrich batch failed:', err.message)
-    }
+    batches.push(toEnrich.slice(i, i + BATCH_SIZE))
   }
+
+  // Run all enrichment batches in parallel
+  await Promise.all(batches.map(batch => enrichBatch(batch, catalog)))
 }

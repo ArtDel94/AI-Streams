@@ -39,7 +39,7 @@ router.post('/extract', upload.single('file'), async (req, res, next) => {
     const { inputType, url, text, merchantName } = req.body
     const jobId = uuidv4()
 
-    jobs.set(jobId, { jobId, status: 'queued', log: [], catalog: null })
+    jobs.set(jobId, { jobId, status: 'queued', stage: 'extracting', log: [], catalog: null })
     res.json({ jobId, status: 'queued' })
 
     // Run async
@@ -107,6 +107,7 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
   }
 
   try {
+    job.stage = 'analyzing'
     log(jobId, 'info', 'Sending to AI for catalog extraction...')
     const catalog = await extractCatalog(aiInput, merchantName)
 
@@ -114,11 +115,13 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
     const totalProducts = allItems.length
     log(jobId, 'success', `Catalog extracted — ${totalProducts} items across ${catalog.categories.length} categories`)
 
+    job.stage = 'enriching'
     log(jobId, 'info', `Generating descriptions and tags for ${totalProducts} items...`)
     await enrichProducts(catalog)
     log(jobId, 'success', 'Descriptions and tags generated')
 
     log(jobId, 'success', 'Done. Catalog ready.')
+    job.stage = 'done'
     job.catalog = catalog
     job.status = 'completed'
   } catch (err) {
