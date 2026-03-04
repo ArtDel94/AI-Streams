@@ -3,7 +3,7 @@ import { useState } from 'react'
 export default function ExportBar({ catalog }) {
   const [exporting, setExporting] = useState(false)
 
-  const totalProducts = catalog.categories?.reduce((s, c) => s + c.products.length, 0) || 0
+  const totalProducts = catalog.categories?.reduce((s, c) => s + (c.items || c.products || []).length, 0) || 0
 
   async function handleExport() {
     setExporting(true)
