@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { API_BASE } from '../api.js'
 
 export default function ProductCard({ product, currency, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -6,8 +7,25 @@ export default function ProductCard({ product, currency, onUpdate, onDelete }) {
   const [tagInput, setTagInput] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [generatingImage, setGeneratingImage] = useState(false)
 
   const needsReview = product.confidence === 'low'
+
+  async function handleGenerateImage() {
+    setGeneratingImage(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/catalog/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: product.name, description: product.description, category: product.category }),
+      })
+      const data = await res.json()
+      if (data.imageUrl) onUpdate({ ...product, image_url: data.imageUrl, edited: true })
+    } catch (err) {
+      console.error('Image generation failed:', err)
+    }
+    setGeneratingImage(false)
+  }
 
   function handleSave() {
     onUpdate({ ...form, edited: true })
@@ -118,6 +136,32 @@ export default function ProductCard({ product, currency, onUpdate, onDelete }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowDeleteConfirm(false) }}
     >
+      {/* Product image */}
+      {product.image_url ? (
+        <div className="relative -mx-4 -mt-4 mb-3 h-36 overflow-hidden rounded-t-xl">
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="w-full h-full object-cover"
+            onError={e => { e.target.parentElement.style.display = 'none' }}
+          />
+        </div>
+      ) : (
+        <div className="mb-2">
+          <button
+            onClick={handleGenerateImage}
+            disabled={generatingImage}
+            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-rebell-blue transition-colors disabled:opacity-50"
+          >
+            {generatingImage ? (
+              <><span className="inline-block w-3 h-3 border border-rebell-blue border-t-transparent rounded-full animate-spin" /> Generating...</>
+            ) : (
+              <><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2"/><circle cx="4" cy="4" r="1" fill="currentColor"/><path d="M1 8l3-3 2 2 2-2 3 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/></svg> Generate image</>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Review badge */}
       {needsReview && (
         <div className="flex items-center gap-1 mb-2">

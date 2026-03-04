@@ -143,7 +143,15 @@ EXTRACTION RULES (follow every single one):
       and include "currency" on each item.
     - If no currency is detectable: "currency": null
 
-12. INPUT QUALITY HANDLING
+12. PRODUCT IMAGES
+    - If a ---STRUCTURED_DATA_JSON_LD--- block is present at the end of the
+      input, scan it for image URLs associated with each product.
+      Common locations: MenuItem.image, Product.image, offers.image
+    - Set "image_url" to the full image URL if found for that product.
+    - If no image is found in structured data: "image_url": null
+    - Do NOT invent or guess image URLs.
+
+13. INPUT QUALITY HANDLING
     - Raw HTML: Strip all tags. Focus on text content, alt attributes,
       aria-labels, and structured data (JSON-LD, microdata) if present.
     - OCR output: Expect spacing issues, merged words, misread characters
@@ -171,8 +179,10 @@ No backticks. No preamble.
         {
           "name": "Spaghetti alla Carbonara",
           "description": "Pasta con guanciale, uovo, pecorino romano e pepe nero",
+          "description_generated": false,
           "price": 12.50,
           "price_max": null,
+          "image_url": null,
           "is_combo": false,
           "combo_items": [],
           "allergens": ["glutine", "uova", "latte"],
@@ -190,6 +200,7 @@ FIELD TYPES (strict):
 - description_generated: boolean (true if you wrote it, false if extracted from source)
 - price:                number | null (decimal, period separator)
 - price_max:            number | null
+- image_url:            string | null (from structured data only — never invented)
 - is_combo:             boolean
 - combo_items:          array of { name: string, quantity?: number, price?: number }
 - allergens:            string[] (lowercase)
@@ -350,6 +361,26 @@ async function enrichBatch(batch, catalog) {
   } catch (err) {
     console.warn('Enrich batch failed:', err.message)
   }
+}
+
+export async function generateProductImage(name, description, category) {
+  const prompt = [
+    `Professional product photo of "${name}"`,
+    description ? `: ${description.slice(0, 120)}` : '',
+    category ? ` (${category})` : '',
+    '. Clean background, well-lit, high quality, appetizing presentation, menu photography style.',
+  ].join('')
+
+  const response = await client.images.generate({
+    model: 'dall-e-3',
+    prompt,
+    n: 1,
+    size: '1024x1024',
+    quality: 'standard',
+    response_format: 'url',
+  })
+
+  return response.data[0].url
 }
 
 export async function enrichProducts(catalog) {

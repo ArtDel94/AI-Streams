@@ -116,6 +116,14 @@ export async function extractFromUrl(url) {
     }
     allSnapshots.push(await page.evaluate(() => document.body.innerText))
 
+    // Extract JSON-LD structured data (schema.org) — delivery platforms embed
+    // product/menu item data here including image URLs
+    const jsonLd = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+        .map(s => { try { return JSON.parse(s.textContent) } catch { return null } })
+        .filter(Boolean)
+    })
+
     // Deduplicate by 3-line blocks: keep a block only if we haven't seen this
     // exact triplet before. This prevents repeated nav/header while preserving
     // items that appear with different descriptions in different sections.
@@ -139,7 +147,7 @@ export async function extractFromUrl(url) {
       return { text: null, error: 'Could not extract enough content from this page. Try taking a screenshot and uploading it as an image instead.' }
     }
 
-    return { text, sourceUrl: url }
+    return { text, jsonLd: jsonLd.length ? jsonLd : null, sourceUrl: url }
 
   } catch (err) {
     if (err.message?.includes('timeout')) {

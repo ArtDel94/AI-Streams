@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { extractFromPdf, extractFromImage, extractFromDocx, extractFromUrl } from '../services/extractor.js'
-import { extractCatalog } from '../services/aiAgent.js'
+import { extractCatalog, generateProductImage } from '../services/aiAgent.js'
 
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
@@ -89,8 +89,11 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
       if (result.error) throw new Error(result.error)
       // Strip common footer/nav noise that appears after the menu content
       const cleaned = stripFooterNoise(result.text)
-      log(jobId, 'success', `Text extracted — ${cleaned.length} characters`)
-      aiInput = { type: 'text', content: cleaned }
+      const jsonLdStr = result.jsonLd
+        ? '\n\n---STRUCTURED_DATA_JSON_LD---\n' + JSON.stringify(result.jsonLd)
+        : ''
+      log(jobId, 'success', `Text extracted — ${cleaned.length} characters${result.jsonLd ? ' + structured data' : ''}`)
+      aiInput = { type: 'text', content: cleaned + jsonLdStr }
 
     } else if (inputType === 'text') {
       log(jobId, 'info', 'Processing manual text input...')
@@ -139,6 +142,18 @@ router.post('/export', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.setHeader('Content-Type', 'application/json')
   res.send(JSON.stringify(catalog, null, 2))
+})
+
+// POST /api/catalog/generate-image
+router.post('/generate-image', async (req, res) => {
+  const { name, description, category } = req.body
+  if (!name) return res.status(400).json({ error: 'name is required' })
+  try {
+    const imageUrl = await generateProductImage(name, description, category)
+    res.json({ imageUrl })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 export default router
