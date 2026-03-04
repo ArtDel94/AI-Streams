@@ -90,6 +90,15 @@ export async function extractFromUrl(url) {
     if (err.code === 'ECONNABORTED') {
       return { text: null, error: `Request to ${url} timed out after 10 seconds.` }
     }
+    if (err.response?.status === 403 || err.response?.status === 401) {
+      const host = new URL(url).hostname.replace('www.', '')
+      const knownPlatforms = ['justeat.it', 'just-eat.co.uk', 'deliveroo.com', 'ubereats.com', 'thuisbezorgd.nl', 'lieferando.de']
+      const isPlatform = knownPlatforms.some(p => host.includes(p))
+      if (isPlatform) {
+        return { text: null, error: `${host} blocks automated access. Open the menu in your browser, select all text (⌘A), copy it, then use the Manual tab to paste it here.` }
+      }
+      return { text: null, error: `${host} blocked the request (HTTP 403). Try taking a screenshot of the menu and uploading it as an image instead.` }
+    }
     if (err.response) {
       return { text: null, error: `${url} returned HTTP ${err.response.status}.` }
     }
