@@ -80,41 +80,49 @@ export async function extractFromUrl(url) {
       return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
     }
 
-    // Scroll and accumulate content across all scroll positions.
-    // Virtual scrolling removes top items from DOM as you scroll — so we
-    // collect each snapshot and union all lines seen, preserving order of first appearance.
-    const seenLines = new Map() // line → first-seen scroll position (for ordering)
-    let scrollPos = 0
-
+    // Scroll and collect viewport snapshots at each step.
+    // Virtual scrolling removes top DOM nodes as you scroll, so we concatenate
+    // all snapshots and deduplicate at the BLOCK level (sliding window of 3 lines),
+    // not line-by-line. This preserves richer occurrences (name+desc+price) even
+    // when name also appeared alone in a featured section earlier.
     const STEP = 600
     const PAUSE = 800
     const MAX_STEPS = 80
 
+    const allSnapshots = []
+
     for (let i = 0; i < MAX_STEPS; i++) {
       const snapshot = await page.evaluate(() => document.body.innerText)
-      snapshot.split('\n').forEach(raw => {
-        const l = raw.trim()
-        // Skip very short lines and pure UI noise (ratings, icons, single chars)
-        if (l.length < 2) return
-        if (!seenLines.has(l)) seenLines.set(l, scrollPos)
-      })
+      allSnapshots.push(snapshot)
 
       const atBottom = await page.evaluate((step) => {
         window.scrollBy(0, step)
         return (window.scrollY + window.innerHeight) >= document.body.scrollHeight - 100
       }, STEP)
 
-      scrollPos += STEP
       await new Promise(r => setTimeout(r, PAUSE))
       if (atBottom) break
     }
+    allSnapshots.push(await page.evaluate(() => document.body.innerText))
 
-    // Sort lines by first-seen scroll position to preserve reading order
-    const orderedLines = [...seenLines.entries()]
-      .sort((a, b) => a[1] - b[1])
-      .map(([line]) => line)
+    // Deduplicate by 3-line blocks: keep a block only if we haven't seen this
+    // exact triplet before. This prevents repeated nav/header while preserving
+    // items that appear with different descriptions in different sections.
+    const seenBlocks = new Set()
+    const outputLines = []
 
-    const text = orderedLines.join('\n')
+    for (const snapshot of allSnapshots) {
+      const lines = snapshot.split('\n').map(l => l.trim()).filter(l => l.length > 1)
+      for (let i = 0; i < lines.length; i++) {
+        const blockKey = [lines[i], lines[i + 1] || '', lines[i + 2] || ''].join('|')
+        if (!seenBlocks.has(blockKey)) {
+          seenBlocks.add(blockKey)
+          outputLines.push(lines[i])
+        }
+      }
+    }
+
+    const text = outputLines.join('\n')
 
     if (!text || text.length < 100) {
       return { text: null, error: 'Could not extract enough content from this page. Try taking a screenshot and uploading it as an image instead.' }

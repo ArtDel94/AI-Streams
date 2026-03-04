@@ -10,6 +10,23 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // In-memory job store
 const jobs = new Map()
 
+// Strip nav/footer noise that delivery platforms append after menu content
+const FOOTER_MARKERS = [
+  'scopri deliveroo', 'scarica la app', '© deliveroo', '© uber',
+  'termini & condizioni', 'informativa sulla privacy', 'cookie',
+  'lavora con noi', 'diventa nostro partner', 'il carrello è vuoto',
+  'vai al pagamento', 'assistenza clienti', 'note legali',
+]
+function stripFooterNoise(text) {
+  const lines = text.split('\n')
+  let cutAt = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    const lower = lines[i].toLowerCase()
+    if (FOOTER_MARKERS.some(m => lower.includes(m))) { cutAt = i; break }
+  }
+  return lines.slice(0, cutAt).join('\n')
+}
+
 function log(jobId, type, msg) {
   const job = jobs.get(jobId)
   if (!job) return
@@ -70,8 +87,10 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
       log(jobId, 'info', `Extracting text from URL...`)
       const result = await extractFromUrl(url)
       if (result.error) throw new Error(result.error)
-      log(jobId, 'success', `Text extracted — ${result.text.length} characters`)
-      aiInput = { type: 'text', content: result.text }
+      // Strip common footer/nav noise that appears after the menu content
+      const cleaned = stripFooterNoise(result.text)
+      log(jobId, 'success', `Text extracted — ${cleaned.length} characters`)
+      aiInput = { type: 'text', content: cleaned }
 
     } else if (inputType === 'text') {
       log(jobId, 'info', 'Processing manual text input...')
