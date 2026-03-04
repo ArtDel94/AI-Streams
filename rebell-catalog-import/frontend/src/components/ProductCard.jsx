@@ -36,8 +36,8 @@ export default function ProductCard({ product, currency, onUpdate, onDelete }) {
     const sym = cur || '€'
     const price = parseFloat(item.price)
     if (isNaN(price)) return null
-    if (item.price_max != null) return `${sym}${price.toFixed(2)} – ${sym}${parseFloat(item.price_max).toFixed(2)}`
-    return `${sym}${price.toFixed(2)}`
+    if (item.price_max != null) return `${sym} ${price.toFixed(2)} – ${sym} ${parseFloat(item.price_max).toFixed(2)}`
+    return `${sym} ${price.toFixed(2)}`
   }
 
   if (editing) {
@@ -173,7 +173,7 @@ export default function ProductCard({ product, currency, onUpdate, onDelete }) {
           {product.combo_items.map((ci, i) => (
             <div key={i} className="flex justify-between text-xs text-purple-700">
               <span>{ci.quantity ? `${ci.quantity}× ` : ''}{ci.name}</span>
-              {ci.price != null && <span>{currency}{parseFloat(ci.price).toFixed(2)}</span>}
+              {ci.price != null && <span>{currency} {parseFloat(ci.price).toFixed(2)}</span>}
             </div>
           ))}
         </div>
