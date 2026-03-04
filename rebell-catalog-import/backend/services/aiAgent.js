@@ -57,9 +57,11 @@ EXTRACTION RULES (follow every single one):
          "Ingrédients:", "Zutaten:", "Ingredientes:", "Ingrediënten:")
        • A parenthetical note after the name
        • A separate text block near the item in HTML/OCR layout
-   - Keep descriptions in the original language exactly as written.
-   - If NO description is visible: "description": null
-     Do NOT invent, generate, or guess descriptions. null is correct.
+   - Keep extracted descriptions in the original language exactly as written.
+   - If NO description is visible in the source: write a SHORT factual
+     description (max 40 words) based only on the item name and category.
+     Do NOT invent ingredients or features not implied by the name.
+     Mark AI-generated descriptions with "description_generated": true.
 
 6. COMBOS, BUNDLES, AND SETS
    - A combo/bundle is any item that groups multiple sub-items together
@@ -101,10 +103,12 @@ EXTRACTION RULES (follow every single one):
        "Gluten-free", "Sans gluten", "Glutenfrei", "Bio", "Organic"
        Marketing: "Popolare", "Popular", "Best Seller", "Nieuw", "Nuovo",
        "Promo", "Limited Edition"
+   - ALWAYS generate 2–4 additional short tags from the item name and
+     category even when none are stated (e.g. "Chicken", "Grilled",
+     "Pizza", "Pasta", "Vegan", "Spicy", "Burger", "Fish").
    - Place allergens in "allergens": [...] (always lowercase, in the
      original language)
-   - Place other labels in "tags": [...]
-   - If none found: "allergens": [], "tags": []
+   - Place all labels + generated tags in "tags": []
 
 9. CONFIDENCE SCORING
    - "high"   → Default for any well-formed item. Use "high" whenever the name
@@ -181,15 +185,16 @@ No backticks. No preamble.
 }
 
 FIELD TYPES (strict):
-- name:            string (never null — if truly unreadable, use "[illegible]")
-- description:     string | null
-- price:           number | null (decimal, period separator)
-- price_max:       number | null
-- is_combo:        boolean
-- combo_items:     array of { name: string, quantity?: number, price?: number }
-- allergens:       string[] (lowercase)
-- tags:            string[] (original casing)
-- confidence:      "high" | "medium" | "low"`
+- name:                 string (never null — if truly unreadable, use "[illegible]")
+- description:          string (always present — extracted or generated)
+- description_generated: boolean (true if you wrote it, false if extracted from source)
+- price:                number | null (decimal, period separator)
+- price_max:            number | null
+- is_combo:             boolean
+- combo_items:          array of { name: string, quantity?: number, price?: number }
+- allergens:            string[] (lowercase)
+- tags:                 string[] (original casing)
+- confidence:           "high" | "medium" | "low"`
 
 const ENRICH_SYSTEM = `You are a product catalog enricher. For each product, return:
 
