@@ -51,10 +51,11 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
   // Compute stats
   let stats = null
   if (isDone && job.catalog) {
-    const totalProducts = job.catalog.categories?.reduce((s, c) => s + c.products.length, 0) || 0
+    const allItems = job.catalog.categories?.flatMap(c => c.items || c.products || []) || []
+    const totalProducts = allItems.length
     const totalCategories = job.catalog.categories?.length || 0
-    const generated = job.catalog.categories?.flatMap(c => c.products).filter(p => p.description_generated).length || 0
-    const needsReview = job.catalog.categories?.flatMap(c => c.products).filter(p => p.confidence !== 'high').length || 0
+    const generated = allItems.filter(p => p.description_generated).length
+    const needsReview = allItems.filter(p => p.confidence !== 'high').length
     stats = { totalProducts, totalCategories, generated, needsReview }
   }
 
