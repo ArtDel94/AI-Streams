@@ -63,7 +63,7 @@ export async function extractFromUrl(url) {
     await page.setViewport({ width: 1280, height: 900 })
 
     const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
-    await new Promise(r => setTimeout(r, 2000)) // let deferred rendering finish
+    await new Promise(r => setTimeout(r, 600)) // let deferred rendering finish
     const status = response?.status()
 
     if (status && status >= 400) {
@@ -85,15 +85,26 @@ export async function extractFromUrl(url) {
     // all snapshots and deduplicate at the BLOCK level (sliding window of 3 lines),
     // not line-by-line. This preserves richer occurrences (name+desc+price) even
     // when name also appeared alone in a featured section earlier.
-    const STEP = 600
-    const PAUSE = 800
-    const MAX_STEPS = 80
+    const STEP = 900   // larger steps = fewer total scrolls
+    const PAUSE = 380  // was 800ms — halves scroll time
+    const MAX_STEPS = 60
 
     const allSnapshots = []
+    let lastLen = 0
+    let stuckCount = 0
 
     for (let i = 0; i < MAX_STEPS; i++) {
       const snapshot = await page.evaluate(() => document.body.innerText)
       allSnapshots.push(snapshot)
+
+      // Early exit: if content hasn't grown for 3 consecutive steps, we've loaded everything
+      if (snapshot.length === lastLen) {
+        stuckCount++
+        if (stuckCount >= 3) break
+      } else {
+        stuckCount = 0
+        lastLen = snapshot.length
+      }
 
       const atBottom = await page.evaluate((step) => {
         window.scrollBy(0, step)

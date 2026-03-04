@@ -199,8 +199,8 @@ const ENRICH_SYSTEM = `You are a product catalog enricher. For each product, ret
 Return ONLY a valid JSON array. No markdown. No explanation.
 Format: [{ "index": 0, "description": "string", "tags": ["tag1", "tag2"] }, ...]`
 
-// Max input chars per chunk — keeps prompt + output comfortably within GPT-4o limits
-const CHUNK_SIZE = 8000
+// Max input chars per chunk — gpt-4o-mini handles 16k output, so we can use larger chunks
+const CHUNK_SIZE = 14000
 
 function safeParseJson(raw) {
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
@@ -259,7 +259,7 @@ async function extractSingleChunk(content, merchantName) {
   }]
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     max_tokens: 16000,
     messages: [
       { role: 'system', content: EXTRACT_SYSTEM },
@@ -280,7 +280,7 @@ export async function extractCatalog(input, merchantName) {
   // Images go directly — no chunking possible
   if (input.type === 'image') {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       max_tokens: 16000,
       messages: [
         { role: 'system', content: EXTRACT_SYSTEM },
@@ -352,7 +352,11 @@ export async function enrichProducts(catalog) {
   catalog.categories.forEach((cat, catIdx) => {
     const items = cat.items || cat.products || []
     items.forEach((item, itemIdx) => {
-      toEnrich.push({ catIdx, itemIdx, name: item.name, category: cat.name, description: item.description || null })
+      const needsDesc = !item.description
+      const needsTags = !item.tags || item.tags.length === 0
+      if (needsDesc || needsTags) {
+        toEnrich.push({ catIdx, itemIdx, name: item.name, category: cat.name, description: item.description || null })
+      }
     })
   })
 
