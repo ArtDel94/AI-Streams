@@ -3,16 +3,11 @@ import mammoth from 'mammoth'
 import axios from 'axios'
 import puppeteer from 'puppeteer'
 
-// Shared browser instance — reused across requests
-let browser = null
-async function getBrowser() {
-  if (!browser || !browser.connected) {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    })
-  }
-  return browser
+async function launchBrowser() {
+  return puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  })
 }
 
 export async function extractFromPdf(fileBuffer) {
@@ -57,16 +52,18 @@ export async function extractFromUrl(url) {
   }
 
   // All other URLs — use Puppeteer headless browser
+  let browser = null
   let page = null
   try {
-    const b = await getBrowser()
-    page = await b.newPage()
+    browser = await launchBrowser()
+    page = await browser.newPage()
 
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
     await page.setViewport({ width: 1280, height: 900 })
 
     const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await new Promise(r => setTimeout(r, 2000)) // let deferred rendering finish
     const status = response?.status()
 
     if (status && status >= 400) {
@@ -83,20 +80,41 @@ export async function extractFromUrl(url) {
       return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
     }
 
-    // Extract visible text from the rendered page
-    const text = await page.evaluate(() => {
-      const remove = ['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript', 'svg', 'button', 'form', 'aside']
-      remove.forEach(tag => document.querySelectorAll(tag).forEach(el => el.remove()))
+    // Scroll and accumulate content across all scroll positions.
+    // Virtual scrolling removes top items from DOM as you scroll — so we
+    // collect each snapshot and union all lines seen, preserving order of first appearance.
+    const seenLines = new Map() // line → first-seen scroll position (for ordering)
+    let scrollPos = 0
 
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-      const parts = []
-      let node
-      while ((node = walker.nextNode())) {
-        const t = node.textContent.trim()
-        if (t.length > 1) parts.push(t)
-      }
-      return [...new Set(parts)].join('\n')
-    })
+    const STEP = 600
+    const PAUSE = 800
+    const MAX_STEPS = 80
+
+    for (let i = 0; i < MAX_STEPS; i++) {
+      const snapshot = await page.evaluate(() => document.body.innerText)
+      snapshot.split('\n').forEach(raw => {
+        const l = raw.trim()
+        // Skip very short lines and pure UI noise (ratings, icons, single chars)
+        if (l.length < 2 || /^[€$£\d\s,.()\-–]+$/.test(l)) return
+        if (!seenLines.has(l)) seenLines.set(l, scrollPos)
+      })
+
+      const atBottom = await page.evaluate((step) => {
+        window.scrollBy(0, step)
+        return (window.scrollY + window.innerHeight) >= document.body.scrollHeight - 100
+      }, STEP)
+
+      scrollPos += STEP
+      await new Promise(r => setTimeout(r, PAUSE))
+      if (atBottom) break
+    }
+
+    // Sort lines by first-seen scroll position to preserve reading order
+    const orderedLines = [...seenLines.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .map(([line]) => line)
+
+    const text = orderedLines.join('\n')
 
     if (!text || text.length < 100) {
       return { text: null, error: 'Could not extract enough content from this page. Try taking a screenshot and uploading it as an image instead.' }
@@ -110,6 +128,6 @@ export async function extractFromUrl(url) {
     }
     return { text: null, error: `Could not load page: ${err.message}` }
   } finally {
-    if (page) await page.close().catch(() => {})
+    if (browser) await browser.close().catch(() => {})
   }
 }
