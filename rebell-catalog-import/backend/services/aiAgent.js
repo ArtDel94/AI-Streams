@@ -186,16 +186,13 @@ FIELD TYPES (strict):
 - tags:            string[] (original casing)
 - confidence:      "high" | "medium" | "low"`
 
-const ENRICH_SYSTEM = `You are a product description writer. Given a list of products from a merchant's catalog, write a short, accurate description for each one.
+const ENRICH_SYSTEM = `You are a product catalog enricher. For each product, return:
 
-Rules:
-- Keep descriptions between 20-60 words
-- Be factual and appetizing (for food) or informative (for other products)
-- Do not invent ingredients or features that weren't in the original menu
-- If the product name alone gives enough info, a 1-sentence description is fine
-- Return ONLY valid JSON array. No markdown. No explanation.
+1. description — Write a short, accurate description (20-60 words). Be factual and appetizing (food) or informative (other products). Do NOT invent ingredients or features not implied by the name, existing description, or category. If the product already has a description, return it unchanged.
+2. tags — Generate 2-5 short, relevant tags based on the product name, existing description, and category. Examples: "Chicken", "Grilled", "Vegetarian", "Spicy", "Bundle", "Sandwich", "Fried", "Seasonal", "Beef", "Fish", "Pizza", "Pasta". Tags should be concise (1-2 words), in the same language as the product name.
 
-Format: [{ "index": 0, "description": "string" }, ...]`
+Return ONLY a valid JSON array. No markdown. No explanation.
+Format: [{ "index": 0, "description": "string", "tags": ["tag1", "tag2"] }, ...]`
 
 // Max input chars per chunk — keeps prompt + output comfortably within GPT-4o limits
 const CHUNK_SIZE = 8000
@@ -311,9 +308,7 @@ export async function enrichProducts(catalog) {
   catalog.categories.forEach((cat, catIdx) => {
     const items = cat.items || cat.products || []
     items.forEach((item, itemIdx) => {
-      if (!item.description) {
-        toEnrich.push({ catIdx, itemIdx, name: item.name, category: cat.name })
-      }
+      toEnrich.push({ catIdx, itemIdx, name: item.name, category: cat.name, description: item.description || null })
     })
   })
 
@@ -322,7 +317,12 @@ export async function enrichProducts(catalog) {
   const BATCH_SIZE = 20
   for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
     const batch = toEnrich.slice(i, i + BATCH_SIZE)
-    const batchInput = batch.map((item, idx) => ({ index: idx, name: item.name, category: item.category }))
+    const batchInput = batch.map((item, idx) => ({
+      index: idx,
+      name: item.name,
+      category: item.category,
+      description: item.description,
+    }))
 
     try {
       const response = await client.chat.completions.create({
@@ -335,15 +335,23 @@ export async function enrichProducts(catalog) {
       })
 
       const raw = response.choices[0]?.message?.content || ''
-      const descriptions = safeParseJson(raw)
+      const results = safeParseJson(raw)
 
-      if (Array.isArray(descriptions)) {
-        descriptions.forEach(({ index, description }) => {
+      if (Array.isArray(results)) {
+        results.forEach(({ index, description, tags }) => {
           const entry = batch[index]
-          if (entry && description) {
-            const items = catalog.categories[entry.catIdx].items || catalog.categories[entry.catIdx].products
-            items[entry.itemIdx].description = description
-            items[entry.itemIdx].description_generated = true
+          if (!entry) return
+          const items = catalog.categories[entry.catIdx].items || catalog.categories[entry.catIdx].products
+          const item = items[entry.itemIdx]
+          // Only set description if item didn't have one
+          if (!item.description && description) {
+            item.description = description
+            item.description_generated = true
+          }
+          // Always merge generated tags with existing ones
+          if (Array.isArray(tags) && tags.length > 0) {
+            const existing = item.tags || []
+            item.tags = [...new Set([...existing, ...tags])]
           }
         })
       }

@@ -114,12 +114,9 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
     const totalProducts = allItems.length
     log(jobId, 'success', `Catalog extracted — ${totalProducts} items across ${catalog.categories.length} categories`)
 
-    const needsDescriptions = allItems.filter(p => !p.description).length
-    if (needsDescriptions > 0) {
-      log(jobId, 'info', `Generating descriptions for ${needsDescriptions} items...`)
-      await enrichProducts(catalog)
-      log(jobId, 'success', 'Descriptions generated')
-    }
+    log(jobId, 'info', `Generating descriptions and tags for ${totalProducts} items...`)
+    await enrichProducts(catalog)
+    log(jobId, 'success', 'Descriptions and tags generated')
 
     log(jobId, 'success', 'Done. Catalog ready.')
     job.catalog = catalog
