@@ -95,7 +95,7 @@ export async function extractFromUrl(url) {
       snapshot.split('\n').forEach(raw => {
         const l = raw.trim()
         // Skip very short lines and pure UI noise (ratings, icons, single chars)
-        if (l.length < 2 || /^[€$£\d\s,.()\-–]+$/.test(l)) return
+        if (l.length < 2) return
         if (!seenLines.has(l)) seenLines.set(l, scrollPos)
       })
 

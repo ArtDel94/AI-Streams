@@ -8,7 +8,7 @@ Rules:
 - Extract EVERYTHING. Do not skip items.
 - Preserve the merchant's own category names exactly as they appear. Do not rename, merge, or reorder categories.
 - If there are no visible categories, infer logical groupings from the content.
-- For price: extract the numeric value only (no currency symbols). If price is missing or unclear, set to null.
+- For price: extract the numeric value only (no currency symbols). Prices may appear before or after the currency symbol (e.g. "€ 10.50", "10,50 €", "10.50€", "$12"). Use period as decimal separator in the output. If price is missing or unclear, set to null.
 - For description: if the menu has a description for the item, use it verbatim. If not, set to null (do not invent descriptions at this stage).
 - For tags: extract any tags visible in the source (dietary info, allergens, spice level, etc.). If none visible, set to empty array.
 - Confidence: "high" if name + price both clear. "medium" if price missing or category uncertain. "low" if name is ambiguous or item is unclear.
