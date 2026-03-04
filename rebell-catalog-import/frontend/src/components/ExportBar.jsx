@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { API_BASE } from '../api.js'
 
 export default function ExportBar({ catalog }) {
   const [exporting, setExporting] = useState(false)
@@ -8,7 +9,7 @@ export default function ExportBar({ catalog }) {
   async function handleExport() {
     setExporting(true)
     try {
-      const res = await fetch('/api/catalog/export', {
+      const res = await fetch(`${API_BASE}/api/catalog/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(catalog),

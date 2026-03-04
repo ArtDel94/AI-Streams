@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import RebellutionGame from './RebellutionGame.jsx'
+import { API_BASE } from '../api.js'
 
 const STAGES = [
   { key: 'extracting', label: 'Extracting' },
@@ -29,7 +30,7 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
 
   useEffect(() => {
     function poll() {
-      fetch(`/api/catalog/job/${jobId}`)
+      fetch(`${API_BASE}/api/catalog/job/${jobId}`)
         .then(r => r.json())
         .then(data => {
           setJob(data)

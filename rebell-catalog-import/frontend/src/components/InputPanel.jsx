@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { API_BASE } from '../api.js'
 
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
 
@@ -65,7 +66,7 @@ export default function InputPanel({ onJobStarted }) {
       else if (activeTab === 'url') formData.append('url', url.trim())
       else if (activeTab === 'text') formData.append('text', text.trim())
 
-      const res = await fetch('/api/catalog/extract', { method: 'POST', body: formData })
+      const res = await fetch(`${API_BASE}/api/catalog/extract`, { method: 'POST', body: formData })
       const data = await res.json()
       if (data.jobId) onJobStarted(data.jobId)
       else throw new Error(data.error || 'Failed to start job')
