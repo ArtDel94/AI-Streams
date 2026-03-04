@@ -7,7 +7,7 @@ export default function ProductCard({ product, currency, onUpdate, onDelete }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [hovered, setHovered] = useState(false)
 
-  const needsReview = product.confidence === 'low' || product.confidence === 'medium'
+  const needsReview = product.confidence === 'low'
 
   function handleSave() {
     onUpdate({ ...form, edited: true })

@@ -107,11 +107,16 @@ EXTRACTION RULES (follow every single one):
    - If none found: "allergens": [], "tags": []
 
 9. CONFIDENCE SCORING
-   - "high"   → name AND price are both clearly present and unambiguous
-   - "medium" → price is missing, OR name was inferred from description,
-                 OR minor ambiguity exists
-   - "low"    → name AND price are both unclear, OR item may be noise,
-                 OR OCR produced garbled text
+   - "high"   → Default for any well-formed item. Use "high" whenever the name
+                 is clearly readable AND a price is present — even for combos,
+                 bundles, price ranges, or items in a foreign language.
+                 The vast majority of items on a real menu should be "high".
+   - "medium" → Use ONLY when the price is genuinely absent/null for an item
+                 where a price is expected, OR the name could not be read
+                 directly and had to be inferred from surrounding text.
+   - "low"    → Use ONLY when the name is garbled, truncated, or unreadable
+                 (poor OCR), OR when you are genuinely uncertain whether the
+                 line is a product at all (possible noise).
 
 10. NOISE FILTERING
     - IGNORE all of the following — they are NOT items:

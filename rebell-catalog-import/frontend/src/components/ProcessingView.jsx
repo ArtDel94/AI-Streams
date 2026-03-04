@@ -55,7 +55,7 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
     const totalProducts = allItems.length
     const totalCategories = job.catalog.categories?.length || 0
     const generated = allItems.filter(p => p.description_generated).length
-    const needsReview = allItems.filter(p => p.confidence !== 'high').length
+    const needsReview = allItems.filter(p => p.confidence === 'low').length
     stats = { totalProducts, totalCategories, generated, needsReview }
   }
 

@@ -8,7 +8,7 @@ export default function CatalogView({ catalog, setCatalog, onNewImport }) {
   const [newProductData, setNewProductData] = useState({ name: '', description: '', price: '', tags: [] })
 
   const totalProducts = catalog.categories?.reduce((s, c) => s + (c.items || c.products || []).length, 0) || 0
-  const needsReview = catalog.categories?.flatMap(c => c.items || c.products || []).filter(p => p.confidence !== 'high').length || 0
+  const needsReview = catalog.categories?.flatMap(c => c.items || c.products || []).filter(p => p.confidence === 'low').length || 0
   const merchantName = catalog.merchant_name || 'Your Catalog'
   const currency = catalog.currency || '€'
 
