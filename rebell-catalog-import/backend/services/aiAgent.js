@@ -227,7 +227,7 @@ export async function extractCatalog(input, merchantName) {
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o',
-    max_tokens: 8192,
+    max_tokens: 16000,
     messages: [
       { role: 'system', content: EXTRACT_SYSTEM },
       ...messages,
@@ -238,8 +238,15 @@ export async function extractCatalog(input, merchantName) {
   const catalog = safeParseJson(raw)
 
   if (!catalog) {
-    console.warn('OpenAI returned unparseable response:', raw.slice(0, 200))
-    return { merchant_name: merchantName || null, currency: null, categories: [], item_count: 0 }
+    const truncated = raw.length > 0 && raw.length < 100
+    const reason = truncated ? 'Response was truncated (token limit hit)' : 'Unparseable JSON response'
+    console.warn(`OpenAI extraction failed — ${reason}:`, raw.slice(0, 300))
+    throw new Error(`AI returned unparseable response. ${reason}. Try a smaller input or split the menu into sections.`)
+  }
+
+  if (!catalog.categories?.length) {
+    console.warn('OpenAI returned empty catalog. Finish reason may be token limit. Raw:', raw.slice(0, 300))
+    throw new Error('AI returned an empty catalog. The input may be too large — try splitting the menu or using a PDF/image upload instead.')
   }
 
   return catalog
