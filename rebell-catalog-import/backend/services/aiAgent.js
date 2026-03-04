@@ -197,6 +197,9 @@ Rules:
 
 Format: [{ "index": 0, "description": "string" }, ...]`
 
+// Max input chars per chunk — keeps prompt + output comfortably within GPT-4o limits
+const CHUNK_SIZE = 8000
+
 function safeParseJson(raw) {
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
   try {
@@ -206,24 +209,52 @@ function safeParseJson(raw) {
   }
 }
 
-export async function extractCatalog(input, merchantName) {
-  const messages = input.type === 'image'
-    ? [{
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:${input.mimeType};base64,${input.imageBase64}` }
-          },
-          { type: 'text', text: 'Extract the complete product catalog from this image.' }
-        ]
-      }]
-    : [{
-        role: 'user',
-        content: merchantName
-          ? `Merchant: ${merchantName}\n\n${input.content}`
-          : input.content
-      }]
+// Split text into chunks of ~CHUNK_SIZE chars, breaking on newlines
+function chunkText(text) {
+  if (text.length <= CHUNK_SIZE) return [text]
+  const lines = text.split('\n')
+  const chunks = []
+  let current = ''
+  for (const line of lines) {
+    if (current.length + line.length + 1 > CHUNK_SIZE && current.length > 0) {
+      chunks.push(current)
+      current = ''
+    }
+    current += (current ? '\n' : '') + line
+  }
+  if (current) chunks.push(current)
+  return chunks
+}
+
+// Merge an array of catalogs into one, combining same-named categories
+function mergeCatalogs(catalogs) {
+  const base = catalogs[0]
+  const categoryMap = new Map()
+  for (const cat of (base.categories || [])) {
+    categoryMap.set(cat.name.toLowerCase().trim(), { ...cat, items: [...(cat.items || [])] })
+  }
+  for (const catalog of catalogs.slice(1)) {
+    for (const cat of (catalog.categories || [])) {
+      const key = cat.name.toLowerCase().trim()
+      if (categoryMap.has(key)) {
+        categoryMap.get(key).items.push(...(cat.items || []))
+      } else {
+        categoryMap.set(key, { ...cat, items: [...(cat.items || [])] })
+      }
+    }
+  }
+  return {
+    ...base,
+    categories: [...categoryMap.values()],
+    item_count: [...categoryMap.values()].reduce((s, c) => s + c.items.length, 0),
+  }
+}
+
+async function extractSingleChunk(content, merchantName) {
+  const messages = [{
+    role: 'user',
+    content: merchantName ? `Merchant: ${merchantName}\n\n${content}` : content,
+  }]
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o',
@@ -236,20 +267,43 @@ export async function extractCatalog(input, merchantName) {
 
   const raw = response.choices[0]?.message?.content || ''
   const catalog = safeParseJson(raw)
-
   if (!catalog) {
-    const truncated = raw.length > 0 && raw.length < 100
-    const reason = truncated ? 'Response was truncated (token limit hit)' : 'Unparseable JSON response'
-    console.warn(`OpenAI extraction failed — ${reason}:`, raw.slice(0, 300))
-    throw new Error(`AI returned unparseable response. ${reason}. Try a smaller input or split the menu into sections.`)
+    console.warn('Unparseable chunk response:', raw.slice(0, 200))
+    return null
   }
-
-  if (!catalog.categories?.length) {
-    console.warn('OpenAI returned empty catalog. Finish reason may be token limit. Raw:', raw.slice(0, 300))
-    throw new Error('AI returned an empty catalog. The input may be too large — try splitting the menu or using a PDF/image upload instead.')
-  }
-
   return catalog
+}
+
+export async function extractCatalog(input, merchantName) {
+  // Images go directly — no chunking possible
+  if (input.type === 'image') {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o',
+      max_tokens: 16000,
+      messages: [
+        { role: 'system', content: EXTRACT_SYSTEM },
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${input.mimeType};base64,${input.imageBase64}` } },
+          { type: 'text', text: 'Extract the complete product catalog from this image.' }
+        ]},
+      ],
+    })
+    const raw = response.choices[0]?.message?.content || ''
+    const catalog = safeParseJson(raw)
+    if (!catalog) throw new Error('Could not parse AI response for image.')
+    return catalog
+  }
+
+  // Text: chunk if large, then merge results
+  const chunks = chunkText(input.content)
+  const results = []
+  for (const chunk of chunks) {
+    const catalog = await extractSingleChunk(chunk, merchantName)
+    if (catalog) results.push(catalog)
+  }
+
+  if (results.length === 0) throw new Error('AI could not extract any items from the input.')
+  return results.length === 1 ? results[0] : mergeCatalogs(results)
 }
 
 export async function enrichProducts(catalog) {
