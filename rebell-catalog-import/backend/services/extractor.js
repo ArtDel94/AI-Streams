@@ -1,7 +1,19 @@
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import mammoth from 'mammoth'
 import axios from 'axios'
-import * as cheerio from 'cheerio'
+import puppeteer from 'puppeteer'
+
+// Shared browser instance — reused across requests
+let browser = null
+async function getBrowser() {
+  if (!browser || !browser.connected) {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    })
+  }
+  return browser
+}
 
 export async function extractFromPdf(fileBuffer) {
   try {
@@ -29,79 +41,75 @@ export async function extractFromDocx(fileBuffer) {
 }
 
 export async function extractFromUrl(url) {
+  // PDF URLs — download as buffer and parse directly
+  if (url.split('?')[0].toLowerCase().endsWith('.pdf')) {
+    try {
+      const response = await axios.get(url, { timeout: 15000, responseType: 'arraybuffer' })
+      const contentType = response.headers['content-type'] || ''
+      if (contentType.includes('application/pdf') || url.split('?')[0].toLowerCase().endsWith('.pdf')) {
+        const result = await extractFromPdf(Buffer.from(response.data))
+        if (result.error) return { text: null, error: result.error }
+        return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
+      }
+    } catch (err) {
+      return { text: null, error: `Could not download PDF: ${err.message}` }
+    }
+  }
+
+  // All other URLs — use Puppeteer headless browser
+  let page = null
   try {
-    const response = await axios.get(url, {
-      timeout: 15000,
-      responseType: 'arraybuffer',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    })
+    const b = await getBrowser()
+    page = await b.newPage()
 
-    const contentType = response.headers['content-type'] || ''
-    const isPdf = contentType.includes('application/pdf') || url.split('?')[0].toLowerCase().endsWith('.pdf')
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+    await page.setViewport({ width: 1280, height: 900 })
 
-    if (isPdf) {
-      const result = await extractFromPdf(Buffer.from(response.data))
+    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    const status = response?.status()
+
+    if (status && status >= 400) {
+      return { text: null, error: `${new URL(url).hostname} returned HTTP ${status}. The site may require a login or blocks automated access.` }
+    }
+
+    // Check if navigated to a PDF
+    const contentType = response?.headers()['content-type'] || ''
+    if (contentType.includes('application/pdf')) {
+      await page.close()
+      const res = await axios.get(url, { timeout: 15000, responseType: 'arraybuffer' })
+      const result = await extractFromPdf(Buffer.from(res.data))
       if (result.error) return { text: null, error: result.error }
       return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
     }
 
-    const html = Buffer.from(response.data).toString('utf-8')
+    // Extract visible text from the rendered page
+    const text = await page.evaluate(() => {
+      const remove = ['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript', 'svg', 'button', 'form', 'aside']
+      remove.forEach(tag => document.querySelectorAll(tag).forEach(el => el.remove()))
 
-    const $ = cheerio.load(html)
-
-    // Remove noisy tags
-    $('script, style, nav, footer, header, iframe, noscript, svg, button, form').remove()
-
-    // Extract meaningful text
-    const parts = []
-    $('h1, h2, h3, h4, p, li, td, th, span, div').each((_, el) => {
-      const node = $(el)
-      // Only direct text, not descendant text from nested elements (for div/span)
-      const tag = el.tagName?.toLowerCase()
-      let text
-      if (['div', 'span'].includes(tag)) {
-        // Only grab if this node has direct text (not just wrapped elements)
-        text = node.clone().children().remove().end().text().trim()
-      } else {
-        text = node.text().trim()
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      const parts = []
+      let node
+      while ((node = walker.nextNode())) {
+        const t = node.textContent.trim()
+        if (t.length > 1) parts.push(t)
       }
-      if (text && text.length > 1) parts.push(text)
+      return [...new Set(parts)].join('\n')
     })
 
-    // Join, collapse whitespace, deduplicate blanks
-    const raw = parts.join('\n')
-    const cleaned = raw
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0)
-      .filter((l, i, arr) => arr.indexOf(l) === i) // deduplicate
-      .join('\n')
-
-    if (cleaned.length < 100) {
-      return { text: null, error: 'Could not extract enough content from this URL. Try pasting the text manually.' }
+    if (!text || text.length < 100) {
+      return { text: null, error: 'Could not extract enough content from this page. Try taking a screenshot and uploading it as an image instead.' }
     }
 
-    return { text: cleaned, sourceUrl: url }
+    return { text, sourceUrl: url }
+
   } catch (err) {
-    if (err.code === 'ECONNABORTED') {
-      return { text: null, error: `Request to ${url} timed out after 10 seconds.` }
+    if (err.message?.includes('timeout')) {
+      return { text: null, error: `Page took too long to load. Try taking a screenshot and uploading it as an image instead.` }
     }
-    if (err.response?.status === 403 || err.response?.status === 401) {
-      const host = new URL(url).hostname.replace('www.', '')
-      const knownPlatforms = ['justeat.it', 'just-eat.co.uk', 'deliveroo.com', 'ubereats.com', 'thuisbezorgd.nl', 'lieferando.de']
-      const isPlatform = knownPlatforms.some(p => host.includes(p))
-      if (isPlatform) {
-        return { text: null, error: `${host} blocks automated access. Open the menu in your browser, select all text (⌘A), copy it, then use the Manual tab to paste it here.` }
-      }
-      return { text: null, error: `${host} blocked the request (HTTP 403). Try taking a screenshot of the menu and uploading it as an image instead.` }
-    }
-    if (err.response) {
-      return { text: null, error: `${url} returned HTTP ${err.response.status}.` }
-    }
-    return { text: null, error: `Could not fetch ${url}: ${err.message}` }
+    return { text: null, error: `Could not load page: ${err.message}` }
+  } finally {
+    if (page) await page.close().catch(() => {})
   }
 }
