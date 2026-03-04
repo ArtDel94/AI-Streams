@@ -1,6 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const EXTRACT_SYSTEM = `You are a catalog extraction agent. Your job is to extract every product, dish, or service from the merchant's input and return a perfectly structured JSON catalog.
 
@@ -49,7 +49,6 @@ Rules:
 Format: [{ "index": 0, "description": "string" }, ...]`
 
 function safeParseJson(raw) {
-  // Strip markdown fences if present
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
   try {
     return JSON.parse(cleaned)
@@ -64,8 +63,8 @@ export async function extractCatalog(input, merchantName) {
         role: 'user',
         content: [
           {
-            type: 'image',
-            source: { type: 'base64', media_type: input.mimeType, data: input.imageBase64 }
+            type: 'image_url',
+            image_url: { url: `data:${input.mimeType};base64,${input.imageBase64}` }
           },
           { type: 'text', text: 'Extract the complete product catalog from this image.' }
         ]
@@ -77,18 +76,20 @@ export async function extractCatalog(input, merchantName) {
           : input.content
       }]
 
-  const response = await client.messages.create({
-    model: 'claude-opus-4-6',
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o',
     max_tokens: 8192,
-    system: EXTRACT_SYSTEM,
-    messages,
+    messages: [
+      { role: 'system', content: EXTRACT_SYSTEM },
+      ...messages,
+    ],
   })
 
-  const raw = response.content[0]?.text || ''
+  const raw = response.choices[0]?.message?.content || ''
   const catalog = safeParseJson(raw)
 
   if (!catalog) {
-    console.warn('Claude returned unparseable response:', raw.slice(0, 200))
+    console.warn('OpenAI returned unparseable response:', raw.slice(0, 200))
     return { merchant_name: merchantName || null, currency: '€', categories: [], extraction_notes: 'AI returned unparseable response' }
   }
 
@@ -96,7 +97,6 @@ export async function extractCatalog(input, merchantName) {
 }
 
 export async function enrichProducts(catalog) {
-  // Collect all products that need descriptions
   const toEnrich = []
   catalog.categories.forEach((cat, catIdx) => {
     cat.products.forEach((product, prodIdx) => {
@@ -108,21 +108,22 @@ export async function enrichProducts(catalog) {
 
   if (toEnrich.length === 0) return
 
-  // Batch into groups of 20
   const BATCH_SIZE = 20
   for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
     const batch = toEnrich.slice(i, i + BATCH_SIZE)
     const batchInput = batch.map((item, idx) => ({ index: idx, name: item.name, category: item.category }))
 
     try {
-      const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+      const response = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
         max_tokens: 4096,
-        system: ENRICH_SYSTEM,
-        messages: [{ role: 'user', content: JSON.stringify(batchInput) }],
+        messages: [
+          { role: 'system', content: ENRICH_SYSTEM },
+          { role: 'user', content: JSON.stringify(batchInput) },
+        ],
       })
 
-      const raw = response.content[0]?.text || ''
+      const raw = response.choices[0]?.message?.content || ''
       const descriptions = safeParseJson(raw)
 
       if (Array.isArray(descriptions)) {
@@ -139,7 +140,6 @@ export async function enrichProducts(catalog) {
     }
   }
 
-  // Mark products that had original descriptions
   catalog.categories.forEach(cat => {
     cat.products.forEach(product => {
       if (product.description_generated === undefined) {
