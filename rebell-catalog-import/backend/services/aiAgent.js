@@ -2,42 +2,189 @@ import OpenAI from 'openai'
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const EXTRACT_SYSTEM = `You are a catalog extraction agent. Your job is to extract every product, dish, or service from the merchant's input and return a perfectly structured JSON catalog.
+const EXTRACT_SYSTEM = `You are a universal catalog extraction agent. Your job is to extract every
+product, dish, item, or service from a merchant's input and return a
+perfectly structured JSON catalog.
 
-Rules:
-- Extract EVERYTHING. Do not skip any item.
-- Preserve the merchant's own category names exactly as they appear. Do not rename, merge, or reorder categories.
-- If there are no visible categories, infer logical groupings from the content.
-- For price: extract the numeric value only (no currency symbols). Prices may appear before or after the currency symbol (e.g. "€ 10.50", "10,50 €", "10.50€", "$12"). Use period as decimal separator in the output. If price is missing or unclear, set to null.
-- For description: the input may come from a web scrape where text blocks are concatenated without clear structure. A line starting with "INGREDIENTI:", "Pasta fresca", "Cestino", or similar is likely a product description. If the visible name is ambiguous or missing, infer the product name from the description. If no description is present, set to null — do not invent one.
-- Allergen information (e.g. "ALLERGENI: latte, glutine...") should be extracted as tags, not included in the description.
-- For tags: extract dietary info, allergens, labels (e.g. "Popolare", "Vegano"). If none visible, set to empty array.
-- Confidence: "high" if name + price both clear. "medium" if price missing or name inferred from description. "low" if name and price are both unclear.
-- Ignore navigation links, footer text, cookie notices, and UI chrome (e.g. "Registrati", "Scarica la app", "© Deliveroo", "Aggiungi al carrello").
+The input may be raw HTML, cleaned text, OCR output, or any combination.
+It may be in any of these languages: English, Italian, Spanish, French,
+German, Portuguese, or Dutch. The catalog may contain food, retail products,
+services, or any combination.
 
-Return ONLY valid JSON. No markdown. No explanation. No backticks.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-JSON structure:
+EXTRACTION RULES (follow every single one):
+
+1. COMPLETENESS
+   - Extract EVERY item. Zero tolerance for skipped items.
+   - When in doubt whether something is an item or noise, extract it and
+     set confidence to "low".
+
+2. CATEGORIES
+   - Preserve the merchant's own category names EXACTLY as written, in
+     the original language. Do not translate, rename, merge, split, or
+     reorder them.
+   - If no categories are visible, infer logical groupings from the
+     content and set "categories_inferred": true at the top level.
+
+3. NAMES
+   - Use the item name exactly as the merchant wrote it, in the original
+     language.
+   - If no clear name exists but a description does, extract the first
+     meaningful noun phrase from the description as the name.
+   - If the name appears to be truncated or garbled (common in OCR),
+     keep it as-is and set confidence to "medium" or "low".
+
+4. PRICES
+   - Extract the numeric value only. No currency symbols, no text.
+   - Use a period (.) as the decimal separator in output, regardless of
+     the source format.
+   - Handle all common formats:
+       "€10.50"  "10,50€"  "€ 10.50"  "10.50 EUR"  "$12"  "12,00"
+       "CHF 8.50"  "R$ 25,90"  "£7.99"  "7.99£"
+   - If a price range exists (e.g. "8-12€", "from €8"), extract as:
+       "price": 8, "price_max": 12
+     If only "from" with no upper bound: "price": 8, "price_max": null
+   - If price is missing, illegible, or unclear: "price": null
+     Do NOT guess or infer prices. null is always correct when unsure.
+
+5. DESCRIPTIONS
+   - Extract any visible description, ingredient list, or product detail
+     text associated with the item.
+   - Descriptions may appear as:
+       • A line directly below the item name
+       • An ingredient list (in any language: "Ingredients:", "Ingredienti:",
+         "Ingrédients:", "Zutaten:", "Ingredientes:", "Ingrediënten:")
+       • A parenthetical note after the name
+       • A separate text block near the item in HTML/OCR layout
+   - Keep descriptions in the original language exactly as written.
+   - If NO description is visible: "description": null
+     Do NOT invent, generate, or guess descriptions. null is correct.
+
+6. COMBOS, BUNDLES, AND SETS
+   - A combo/bundle is any item that groups multiple sub-items together
+     under a single listing (e.g. "Family Meal Deal", "Cestino 5 Tigelle
+     con...", "Burger + Fries + Drink", "Starter Kit").
+   - ALWAYS keep combos as a SINGLE item. Never split them.
+   - Set "is_combo": true
+   - List sub-items in the "combo_items" array:
+       "combo_items": [
+         { "name": "Tigella Classica", "quantity": 5 },
+         { "name": "Crema di Parmigiano", "quantity": 1 }
+       ]
+   - If sub-items have individual prices AND a combo/total price exists,
+     use the combo price as the item price. Include sub-item prices only
+     in combo_items:
+       "combo_items": [
+         { "name": "Burger", "price": 8.50 },
+         { "name": "Fries", "price": 3.00 }
+       ]
+   - If ONLY a total price is shown, use that. Do not sum or calculate.
+   - If NO total price exists but sub-items have individual prices,
+     set "price": null (do not sum them — the merchant may intend a
+     discount).
+
+7. MODIFIERS AND ADD-ONS
+   - Ignore size variants (S/M/L), add-ons ("+$2 bacon"), customization
+     options, and topping choices entirely.
+   - Do NOT extract these as separate items or fields.
+
+8. ALLERGENS AND TAGS
+   - Extract allergens from explicit allergen statements in any language:
+       "Allergeni: latte, glutine"
+       "Allergens: milk, gluten"
+       "Allergènes: lait, gluten"
+       "Allergenen: melk, gluten"
+   - Also detect allergen icons/symbols if present (🥜 🌾 🥛 🐟 etc.)
+   - Extract dietary and marketing labels as tags:
+       Dietary: "Vegano", "Vegan", "Végétalien", "Vegetarisch",
+       "Gluten-free", "Sans gluten", "Glutenfrei", "Bio", "Organic"
+       Marketing: "Popolare", "Popular", "Best Seller", "Nieuw", "Nuovo",
+       "Promo", "Limited Edition"
+   - Place allergens in "allergens": [...] (always lowercase, in the
+     original language)
+   - Place other labels in "tags": [...]
+   - If none found: "allergens": [], "tags": []
+
+9. CONFIDENCE SCORING
+   - "high"   → name AND price are both clearly present and unambiguous
+   - "medium" → price is missing, OR name was inferred from description,
+                 OR minor ambiguity exists
+   - "low"    → name AND price are both unclear, OR item may be noise,
+                 OR OCR produced garbled text
+
+10. NOISE FILTERING
+    - IGNORE all of the following — they are NOT items:
+        • Navigation elements (menu links, breadcrumbs, tabs)
+        • Footer content (copyright, company info, social links)
+        • Cookie/privacy notices
+        • UI chrome (buttons like "Add to cart", "Registrati",
+          "Ajouter", "In den Warenkorb", "Toevoegen")
+        • Authentication prompts ("Login", "Sign up", "Registrati")
+        • App promotion banners ("Download our app", "Scarica la app")
+        • Delivery/shipping info unless it's a purchasable service
+        • Platform branding ("© Deliveroo", "Powered by Shopify")
+    - If something could be either an item or noise, extract it with
+      confidence "low" rather than skip it.
+
+11. CURRENCY DETECTION
+    - Detect the primary currency from symbols, codes, or context.
+    - Report it once at the top level as "currency": "EUR" (ISO 4217).
+    - If mixed currencies appear, flag: "mixed_currencies": true
+      and include "currency" on each item.
+    - If no currency is detectable: "currency": null
+
+12. INPUT QUALITY HANDLING
+    - Raw HTML: Strip all tags. Focus on text content, alt attributes,
+      aria-labels, and structured data (JSON-LD, microdata) if present.
+    - OCR output: Expect spacing issues, merged words, misread characters
+      (0/O, 1/l, rn/m). Be generous in interpretation. Flag low
+      confidence when OCR quality is poor.
+    - Cleaned text: May have lost structure. Use line proximity, indentation,
+      and price-near-name heuristics to associate data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OUTPUT FORMAT — Return ONLY this JSON. No markdown. No explanation.
+No backticks. No preamble.
+
 {
   "merchant_name": "string or null",
-  "currency": "detected currency symbol or EUR if unknown",
+  "catalog_language": "it",
+  "currency": "EUR",
+  "categories_inferred": false,
+  "mixed_currencies": false,
+  "item_count": 42,
   "categories": [
     {
-      "name": "Category name exactly as in source",
-      "products": [
+      "name": "Primi Piatti",
+      "items": [
         {
-          "name": "string",
-          "description": "string or null",
-          "price": number or null,
-          "tags": ["string"],
-          "confidence": "high | medium | low",
-          "low_confidence_reason": "string or null"
+          "name": "Spaghetti alla Carbonara",
+          "description": "Pasta con guanciale, uovo, pecorino romano e pepe nero",
+          "price": 12.50,
+          "price_max": null,
+          "is_combo": false,
+          "combo_items": [],
+          "allergens": ["glutine", "uova", "latte"],
+          "tags": ["Popolare"],
+          "confidence": "high"
         }
       ]
     }
-  ],
-  "extraction_notes": "any issues or observations about the source material"
-}`
+  ]
+}
+
+FIELD TYPES (strict):
+- name:            string (never null — if truly unreadable, use "[illegible]")
+- description:     string | null
+- price:           number | null (decimal, period separator)
+- price_max:       number | null
+- is_combo:        boolean
+- combo_items:     array of { name: string, quantity?: number, price?: number }
+- allergens:       string[] (lowercase)
+- tags:            string[] (original casing)
+- confidence:      "high" | "medium" | "low"`
 
 const ENRICH_SYSTEM = `You are a product description writer. Given a list of products from a merchant's catalog, write a short, accurate description for each one.
 
@@ -92,7 +239,7 @@ export async function extractCatalog(input, merchantName) {
 
   if (!catalog) {
     console.warn('OpenAI returned unparseable response:', raw.slice(0, 200))
-    return { merchant_name: merchantName || null, currency: '€', categories: [], extraction_notes: 'AI returned unparseable response' }
+    return { merchant_name: merchantName || null, currency: null, categories: [], item_count: 0 }
   }
 
   return catalog
@@ -101,9 +248,10 @@ export async function extractCatalog(input, merchantName) {
 export async function enrichProducts(catalog) {
   const toEnrich = []
   catalog.categories.forEach((cat, catIdx) => {
-    cat.products.forEach((product, prodIdx) => {
-      if (!product.description) {
-        toEnrich.push({ catIdx, prodIdx, name: product.name, category: cat.name })
+    const items = cat.items || cat.products || []
+    items.forEach((item, itemIdx) => {
+      if (!item.description) {
+        toEnrich.push({ catIdx, itemIdx, name: item.name, category: cat.name })
       }
     })
   })
@@ -130,10 +278,11 @@ export async function enrichProducts(catalog) {
 
       if (Array.isArray(descriptions)) {
         descriptions.forEach(({ index, description }) => {
-          const item = batch[index]
-          if (item && description) {
-            catalog.categories[item.catIdx].products[item.prodIdx].description = description
-            catalog.categories[item.catIdx].products[item.prodIdx].description_generated = true
+          const entry = batch[index]
+          if (entry && description) {
+            const items = catalog.categories[entry.catIdx].items || catalog.categories[entry.catIdx].products
+            items[entry.itemIdx].description = description
+            items[entry.itemIdx].description_generated = true
           }
         })
       }
@@ -141,12 +290,4 @@ export async function enrichProducts(catalog) {
       console.warn('Enrich batch failed:', err.message)
     }
   }
-
-  catalog.categories.forEach(cat => {
-    cat.products.forEach(product => {
-      if (product.description_generated === undefined) {
-        product.description_generated = false
-      }
-    })
-  })
 }

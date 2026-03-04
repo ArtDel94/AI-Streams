@@ -110,12 +110,13 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
     log(jobId, 'info', 'Sending to AI for catalog extraction...')
     const catalog = await extractCatalog(aiInput, merchantName)
 
-    const totalProducts = catalog.categories.reduce((sum, cat) => sum + cat.products.length, 0)
-    log(jobId, 'success', `Catalog extracted — ${totalProducts} products across ${catalog.categories.length} categories`)
+    const allItems = catalog.categories.flatMap(c => c.items || c.products || [])
+    const totalProducts = allItems.length
+    log(jobId, 'success', `Catalog extracted — ${totalProducts} items across ${catalog.categories.length} categories`)
 
-    const needsDescriptions = catalog.categories.flatMap(c => c.products).filter(p => !p.description).length
+    const needsDescriptions = allItems.filter(p => !p.description).length
     if (needsDescriptions > 0) {
-      log(jobId, 'info', `Generating descriptions for ${needsDescriptions} products...`)
+      log(jobId, 'info', `Generating descriptions for ${needsDescriptions} items...`)
       await enrichProducts(catalog)
       log(jobId, 'success', 'Descriptions generated')
     }
