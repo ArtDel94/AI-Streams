@@ -70,7 +70,12 @@ export async function extractFromUrl(url) {
     const status = response?.status()
 
     if (status && status >= 400) {
-      return { text: null, error: `${new URL(url).hostname} returned HTTP ${status}. The site may require a login or blocks automated access.` }
+      const hostname = new URL(url).hostname
+      const isDeliveryPlatform = /deliveroo|ubereats|justeat|glovo|doordash|thuisbezorgd|lieferando|wolt/.test(hostname)
+      if (status === 403 && isDeliveryPlatform) {
+        return { text: null, error: `${hostname} blocks automated access from servers. To import from ${hostname}: open the menu in your browser, select all text (Cmd+A / Ctrl+A), copy it, then paste it into the "Text" tab.` }
+      }
+      return { text: null, error: `${hostname} returned HTTP ${status}. The site may require a login or block automated access. Try copying the menu text and using the "Text" tab instead.` }
     }
 
     // Check if navigated to a PDF
