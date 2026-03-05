@@ -5,8 +5,9 @@ import { API_BASE } from '../api.js'
 const STAGES = [
   { key: 'extracting', label: 'Extracting content' },
   { key: 'analyzing',  label: 'AI extraction' },
+  { key: 'enriching',  label: 'Enriching catalog' },
 ]
-const STAGE_INDEX = { extracting: 0, analyzing: 1, done: 2 }
+const STAGE_INDEX = { extracting: 0, analyzing: 1, enriching: 2, done: 3 }
 
 const TYPE_COLOR = {
   info: 'text-slate-400', success: 'text-green-400',
@@ -102,7 +103,7 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
                 <div className="absolute inset-x-[8%] top-3 h-px bg-white/8" />
                 <div
                   className="absolute left-[8%] top-3 h-px bg-green-400 transition-all duration-700"
-                  style={{ width: stageIdx === 0 ? '0%' : '84%' }}
+                  style={{ width: stageIdx === 0 ? '0%' : stageIdx === 1 ? '42%' : '84%' }}
                 />
                 {STAGES.map((stage, i) => {
                   const done    = stageIdx > i

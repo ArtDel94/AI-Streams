@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { extractFromPdf, extractFromImage, extractFromDocx, extractFromUrl } from '../services/extractor.js'
-import { extractCatalog, generateProductImage } from '../services/aiAgent.js'
+import { extractCatalog, enrichProducts, generateProductImage } from '../services/aiAgent.js'
 
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
@@ -117,6 +117,11 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
     const allItems = catalog.categories.flatMap(c => c.items || c.products || [])
     const totalProducts = allItems.length
     log(jobId, 'success', `Catalog extracted — ${totalProducts} items across ${catalog.categories.length} categories`)
+
+    job.stage = 'enriching'
+    log(jobId, 'info', 'Enriching catalog with descriptions and tags...')
+    await enrichProducts(catalog)
+    log(jobId, 'success', 'Enrichment complete.')
 
     log(jobId, 'success', 'Done. Catalog ready.')
     job.stage = 'done'

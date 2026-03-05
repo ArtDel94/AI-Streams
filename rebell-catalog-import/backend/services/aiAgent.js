@@ -58,10 +58,8 @@ EXTRACTION RULES (follow every single one):
        • A parenthetical note after the name
        • A separate text block near the item in HTML/OCR layout
    - Keep extracted descriptions in the original language exactly as written.
-   - If NO description is visible in the source: write a SHORT factual
-     description (max 40 words) based only on the item name and category.
-     Do NOT invent ingredients or features not implied by the name.
-     Mark AI-generated descriptions with "description_generated": true.
+   - If NO description is visible in the source: set "description": null
+     and "description_generated": false. Do NOT invent descriptions.
 
 6. COMBOS, BUNDLES, AND SETS
    - A combo/bundle is any item that groups multiple sub-items together
@@ -103,12 +101,11 @@ EXTRACTION RULES (follow every single one):
        "Gluten-free", "Sans gluten", "Glutenfrei", "Bio", "Organic"
        Marketing: "Popolare", "Popular", "Best Seller", "Nieuw", "Nuovo",
        "Promo", "Limited Edition"
-   - ALWAYS generate 2–4 additional short tags from the item name and
-     category even when none are stated (e.g. "Chicken", "Grilled",
-     "Pizza", "Pasta", "Vegan", "Spicy", "Burger", "Fish").
+   - Only include tags explicitly stated in the source. Do NOT generate
+     or infer tags.
    - Place allergens in "allergens": [...] (always lowercase, in the
      original language)
-   - Place all labels + generated tags in "tags": []
+   - Place extracted labels in "tags": []
 
 9. CONFIDENCE SCORING
    - "high"   → Default for any well-formed item. Use "high" whenever the name
@@ -196,8 +193,8 @@ No backticks. No preamble.
 
 FIELD TYPES (strict):
 - name:                 string (never null — if truly unreadable, use "[illegible]")
-- description:          string (always present — extracted or generated)
-- description_generated: boolean (true if you wrote it, false if extracted from source)
+- description:          string | null (null if not found in source — do NOT invent)
+- description_generated: boolean (always false during extraction — enrichment handles generation)
 - price:                number | null (decimal, period separator)
 - price_max:            number | null
 - image_url:            string | null (from structured data only — never invented)
@@ -215,7 +212,7 @@ const ENRICH_SYSTEM = `You are a product catalog enricher. For each product, ret
 Return ONLY a valid JSON array. No markdown. No explanation.
 Format: [{ "index": 0, "description": "string", "tags": ["tag1", "tag2"] }, ...]`
 
-// Max input chars per chunk — gpt-4o-mini handles 16k output, so we can use larger chunks
+// Max input chars per chunk — gpt-4o extraction, lean schema (~50 tokens/item)
 const CHUNK_SIZE = 14000
 
 function safeParseJson(raw) {
@@ -275,8 +272,9 @@ async function extractSingleChunk(content, merchantName) {
   }]
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     max_tokens: 16000,
+    response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: EXTRACT_SYSTEM },
       ...messages,
@@ -296,8 +294,9 @@ export async function extractCatalog(input, merchantName) {
   // Images go directly — no chunking possible
   if (input.type === 'image') {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       max_tokens: 16000,
+      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: EXTRACT_SYSTEM },
         { role: 'user', content: [
