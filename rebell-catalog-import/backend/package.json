@@ -18,6 +18,8 @@
     "openai": "^4.98.0",
     "pdf-parse": "^1.1.1",
     "puppeteer": "^24.37.5",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "uuid": "^11.1.0"
   }
 }

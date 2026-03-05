@@ -1,10 +1,13 @@
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import mammoth from 'mammoth'
 import axios from 'axios'
-import puppeteer from 'puppeteer'
+import puppeteerExtra from 'puppeteer-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+
+puppeteerExtra.use(StealthPlugin())
 
 async function launchBrowser() {
-  return puppeteer.launch({
+  return puppeteerExtra.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   })
