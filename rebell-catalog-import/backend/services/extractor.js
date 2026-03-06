@@ -134,8 +134,13 @@ async function fetchWithBrowser(url) {
     })
 
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
-    await new Promise(r => setTimeout(r, 300))
     const status = response?.status()
+
+    // Wait until JS has rendered meaningful content, or 4s max
+    await Promise.race([
+      page.waitForFunction('document.body.innerText.trim().length > 500', { timeout: 4000 }),
+      new Promise(r => setTimeout(r, 4000)),
+    ]).catch(() => {})
 
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
