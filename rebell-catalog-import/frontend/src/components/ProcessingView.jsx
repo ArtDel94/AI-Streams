@@ -33,10 +33,10 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
     if (doneRef.current) return
     if (data.status === 'completed' && data.catalog) {
       doneRef.current = true
-      setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog: data.catalog }))
+      setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog: data.catalog, log: data.log?.length ? data.log : prev.log }))
     } else if (data.status === 'failed') {
       doneRef.current = true
-      setJob(prev => ({ ...prev, status: 'failed' }))
+      setJob(prev => ({ ...prev, status: 'failed', log: data.log?.length ? data.log : prev.log }))
     }
   }
 
@@ -61,7 +61,10 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
 
     es.addEventListener('failed', () => {
       es.close()
-      applyJobData({ status: 'failed' })
+      fetch(`${API_BASE}/api/catalog/job/${jobId}`)
+        .then(r => r.json())
+        .then(applyJobData)
+        .catch(() => applyJobData({ status: 'failed' }))
     })
 
     // Fallback poll — catches completion if SSE drops and misses the done event

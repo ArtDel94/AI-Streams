@@ -136,11 +136,8 @@ async function fetchWithBrowser(url) {
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
     const status = response?.status()
 
-    // Wait until JS has rendered meaningful content, or 4s max
-    await Promise.race([
-      page.waitForFunction('document.body.innerText.trim().length > 500', { timeout: 4000 }),
-      new Promise(r => setTimeout(r, 4000)),
-    ]).catch(() => {})
+    // Fixed 2s wait — enough for React/Vue to render, avoids waitForFunction edge cases
+    await new Promise(r => setTimeout(r, 2000))
 
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
