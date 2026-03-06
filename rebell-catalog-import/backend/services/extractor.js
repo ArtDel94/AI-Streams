@@ -1,10 +1,13 @@
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import mammoth from 'mammoth'
 import axios from 'axios'
+import * as cheerio from 'cheerio'
 import puppeteerExtra from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 
 puppeteerExtra.use(StealthPlugin())
+
+const STATIC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 async function launchBrowser() {
   return puppeteerExtra.launch({
@@ -48,34 +51,53 @@ export async function extractFromDocx(fileBuffer) {
   return { text: result.value }
 }
 
-export async function extractFromUrl(url) {
-  // PDF URLs — download as buffer and parse directly
-  if (url.split('?')[0].toLowerCase().endsWith('.pdf')) {
-    try {
-      const response = await axios.get(url, { timeout: 15000, responseType: 'arraybuffer' })
-      const contentType = response.headers['content-type'] || ''
-      if (contentType.includes('application/pdf') || url.split('?')[0].toLowerCase().endsWith('.pdf')) {
-        const result = await extractFromPdf(Buffer.from(response.data))
-        if (result.error) return { text: null, error: result.error }
-        return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
-      }
-    } catch (err) {
-      return { text: null, error: `Could not download PDF: ${err.message}` }
-    }
+// Tier 1: fast static fetch with axios + cheerio (~1-3s)
+// Works for WordPress, static HTML, most restaurant sites
+async function fetchStatic(url) {
+  const res = await axios.get(url, {
+    timeout: 8000,
+    headers: {
+      'User-Agent': STATIC_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    maxRedirects: 5,
+  })
+
+  const contentType = res.headers['content-type'] || ''
+
+  // If server returned a PDF, handle separately
+  if (contentType.includes('application/pdf')) {
+    return { isPdf: true, buffer: Buffer.from(res.data) }
   }
 
-  // All other URLs — use Puppeteer headless browser
+  const $ = cheerio.load(res.data)
+
+  // Extract JSON-LD before stripping scripts
+  const jsonLd = []
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try { jsonLd.push(JSON.parse($(el).html())) } catch {}
+  })
+
+  // Remove noise elements
+  $('script, style, nav, footer, header, [class*="cookie"], [class*="gdpr"], [id*="cookie"], [id*="gdpr"]').remove()
+
+  const text = $('body').text().replace(/\s+/g, ' ').trim()
+
+  return { text, jsonLd: jsonLd.length ? jsonLd : null, statusCode: res.status }
+}
+
+// Tier 2: Puppeteer for JS-rendered SPAs (React, Vue, etc.)
+async function fetchWithBrowser(url) {
   let browser = null
-  let page = null
   try {
     browser = await launchBrowser()
-    page = await browser.newPage()
+    const page = await browser.newPage()
 
-    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+    await page.setUserAgent(STATIC_UA)
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
     await page.setViewport({ width: 1280, height: 900 })
 
-    // Block images, fonts, media — we only need text, not assets
     await page.setRequestInterception(true)
     page.on('request', req => {
       if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
@@ -86,7 +108,7 @@ export async function extractFromUrl(url) {
     })
 
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
-    await new Promise(r => setTimeout(r, 200)) // minimal wait for JS rendering
+    await new Promise(r => setTimeout(r, 300))
     const status = response?.status()
 
     if (status && status >= 400) {
@@ -101,17 +123,13 @@ export async function extractFromUrl(url) {
       const res = await axios.get(url, { timeout: 15000, responseType: 'arraybuffer' })
       const result = await extractFromPdf(Buffer.from(res.data))
       if (result.error) return { text: null, error: result.error }
-      return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
+      return { text: result.text, pageCount: result.pageCount }
     }
 
-    // Scroll and collect viewport snapshots at each step.
-    // Virtual scrolling removes top DOM nodes as you scroll, so we concatenate
-    // all snapshots and deduplicate at the BLOCK level (sliding window of 3 lines),
-    // not line-by-line. This preserves richer occurrences (name+desc+price) even
-    // when name also appeared alone in a featured section earlier.
-    const STEP = 1200  // large steps = fewer scrolls needed
-    const PAUSE = 100  // minimal pause between scrolls
-    const MAX_STEPS = 10 // most menus need < 5 scrolls
+    // Scroll to capture virtual-scrolling content
+    const STEP = 1200
+    const PAUSE = 100
+    const MAX_STEPS = 10
 
     const allSnapshots = []
     let lastLen = 0
@@ -121,7 +139,6 @@ export async function extractFromUrl(url) {
       const snapshot = await page.evaluate(() => document.body.innerText)
       allSnapshots.push(snapshot)
 
-      // Early exit: content stable for 2 consecutive steps = fully loaded
       if (snapshot.length === lastLen) {
         stuckCount++
         if (stuckCount >= 2) break
@@ -140,17 +157,13 @@ export async function extractFromUrl(url) {
     }
     allSnapshots.push(await page.evaluate(() => document.body.innerText))
 
-    // Extract JSON-LD structured data (schema.org) — delivery platforms embed
-    // product/menu item data here including image URLs
     const jsonLd = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
         .map(s => { try { return JSON.parse(s.textContent) } catch { return null } })
         .filter(Boolean)
     })
 
-    // Deduplicate by 3-line blocks: keep a block only if we haven't seen this
-    // exact triplet before. This prevents repeated nav/header while preserving
-    // items that appear with different descriptions in different sections.
+    // Deduplicate by 3-line blocks
     const seenBlocks = new Set()
     const outputLines = []
 
@@ -166,22 +179,68 @@ export async function extractFromUrl(url) {
     }
 
     const text = outputLines.join('\n')
+    return { text, jsonLd: jsonLd.length ? jsonLd : null }
 
-    if (!text || text.length < 100) {
+  } finally {
+    if (browser) await Promise.race([
+      browser.close(),
+      new Promise(r => setTimeout(r, 5000)),
+    ]).catch(() => {})
+  }
+}
+
+export async function extractFromUrl(url) {
+  // PDF URLs — download and parse directly
+  if (url.split('?')[0].toLowerCase().endsWith('.pdf')) {
+    try {
+      const response = await axios.get(url, { timeout: 15000, responseType: 'arraybuffer' })
+      const result = await extractFromPdf(Buffer.from(response.data))
+      if (result.error) return { text: null, error: result.error }
+      return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
+    } catch (err) {
+      return { text: null, error: `Could not download PDF: ${err.message}` }
+    }
+  }
+
+  // Tier 1: fast static fetch (handles WordPress, static HTML, most restaurant sites)
+  try {
+    const staticResult = await fetchStatic(url)
+
+    if (staticResult.isPdf) {
+      const result = await extractFromPdf(staticResult.buffer)
+      if (result.error) return { text: null, error: result.error }
+      return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
+    }
+
+    // If we got meaningful content, use it — no Puppeteer needed
+    if (staticResult.text && staticResult.text.length >= 500) {
+      return { text: staticResult.text, jsonLd: staticResult.jsonLd, sourceUrl: url }
+    }
+  } catch (err) {
+    const status = err.response?.status
+    if (status && status >= 400) {
+      const hostname = new URL(url).hostname
+      return { text: null, error: `${hostname} blocked access (HTTP ${status}). Try downloading the menu as a PDF and uploading it instead.` }
+    }
+    // Network error or timeout — fall through to Puppeteer
+  }
+
+  // Tier 2: Puppeteer for JS-rendered SPAs
+  try {
+    const result = await fetchWithBrowser(url)
+
+    if (result.error) return { text: null, error: result.error }
+
+    if (!result.text || result.text.length < 100) {
       return { text: null, error: 'Could not extract enough content from this page. Try taking a screenshot and uploading it as an image instead.' }
     }
 
-    return { text, jsonLd: jsonLd.length ? jsonLd : null, sourceUrl: url }
+    return { text: result.text, jsonLd: result.jsonLd, sourceUrl: url }
 
   } catch (err) {
     if (err.message?.includes('timeout')) {
       return { text: null, error: `Page took too long to load. Try downloading the menu as a PDF and uploading it instead.` }
     }
     return { text: null, error: `Could not load page: ${err.message}. Try downloading the menu as a PDF and uploading it instead.` }
-  } finally {
-    if (browser) await Promise.race([
-      browser.close(),
-      new Promise(r => setTimeout(r, 5000)),
-    ]).catch(() => {})
   }
 }
