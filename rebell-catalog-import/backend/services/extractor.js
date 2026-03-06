@@ -93,11 +93,15 @@ async function fetchStatic(url) {
   // Remove noise elements
   $('script, style, nav, footer, header, [class*="cookie"], [class*="gdpr"], [id*="cookie"], [id*="gdpr"]').remove()
 
-  // Preserve line structure so AI can parse menu items correctly
-  // Only collapse horizontal whitespace — keep newlines intact
+  // Insert explicit newline markers at block element boundaries so the AI
+  // sees items/prices on separate lines instead of one collapsed blob
+  $('p, h1, h2, h3, h4, h5, h6, li, br, tr, div, section, article').each((_, el) => {
+    $(el).prepend('\x00').append('\x00')
+  })
   const text = $('body').text()
-    .replace(/[^\S\n]+/g, ' ')   // collapse spaces/tabs but not newlines
-    .replace(/\n{3,}/g, '\n\n')  // max 2 consecutive blank lines
+    .replace(/\x00/g, '\n')       // block boundaries → real newlines
+    .replace(/[^\S\n]+/g, ' ')    // collapse inline whitespace
+    .replace(/\n{3,}/g, '\n\n')   // max 2 consecutive blank lines
     .trim()
 
   return { text, jsonLd: jsonLd.length ? jsonLd : null, statusCode: res.status }
