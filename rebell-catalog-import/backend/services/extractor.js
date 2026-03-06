@@ -248,8 +248,10 @@ async function _extractFromUrl(url) {
       return { text: result.text, pageCount: result.pageCount, sourceUrl: url }
     }
 
-    // If we got meaningful content, use it — no Puppeteer needed
-    if (staticResult.text && staticResult.text.length >= 500) {
+    // Only use static result if it contains price-like patterns — otherwise
+    // it's a JS-rendered shell (nav/boilerplate only) and we need Puppeteer
+    const hasPrices = staticResult.text && /\d[\d,.]*\s*[€$£]|[€$£]\s*[\d,.]+/.test(staticResult.text)
+    if (hasPrices && staticResult.text.length >= 500) {
       return { text: staticResult.text, jsonLd: staticResult.jsonLd, sourceUrl: url }
     }
   } catch (err) {
