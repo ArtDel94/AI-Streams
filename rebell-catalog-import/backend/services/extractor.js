@@ -137,8 +137,8 @@ async function fetchWithBrowser(url) {
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
     const status = response?.status()
 
-    // Fixed 2s wait — enough for React/Vue to render, avoids waitForFunction edge cases
-    await new Promise(r => setTimeout(r, 2000))
+    // Wait for JS render — 3s covers most restaurant SPAs
+    await new Promise(r => setTimeout(r, 3000))
 
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
