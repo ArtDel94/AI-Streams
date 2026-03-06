@@ -93,15 +93,21 @@ async function fetchStatic(url) {
   // Remove noise elements
   $('script, style, nav, footer, header, [class*="cookie"], [class*="gdpr"], [id*="cookie"], [id*="gdpr"]').remove()
 
-  // Insert explicit newline markers at block element boundaries so the AI
-  // sees items/prices on separate lines instead of one collapsed blob
-  $('p, h1, h2, h3, h4, h5, h6, li, br, tr, div, section, article').each((_, el) => {
-    $(el).prepend('\x00').append('\x00')
-  })
-  const text = $('body').text()
-    .replace(/\x00/g, '\n')       // block boundaries → real newlines
-    .replace(/[^\S\n]+/g, ' ')    // collapse inline whitespace
-    .replace(/\n{3,}/g, '\n\n')   // max 2 consecutive blank lines
+  // Convert HTML to structured text by working on the raw HTML string:
+  // replace block-level tags with newlines, then strip remaining tags
+  const bodyHtml = $('body').html() || ''
+  const text = bodyHtml
+    .replace(/<\/?(p|div|h[1-6]|li|br|tr|section|article|main|aside|span)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&[a-z0-9#]+;/gi, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 
   return { text, jsonLd: jsonLd.length ? jsonLd : null, statusCode: res.status }
