@@ -137,8 +137,13 @@ async function fetchWithBrowser(url) {
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
     const status = response?.status()
 
-    // Wait for JS render — 3s covers most restaurant SPAs
-    await new Promise(r => setTimeout(r, 3000))
+    // Adaptive wait: poll until body has real content (handles Cloudflare JS
+    // challenges and slow SPAs). Checks every 500ms, up to 8s total.
+    for (let waited = 0; waited < 8000; waited += 500) {
+      const len = await page.evaluate(() => document.body.innerText.trim().length).catch(() => 0)
+      if (len > 500) break
+      await new Promise(r => setTimeout(r, 500))
+    }
 
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
