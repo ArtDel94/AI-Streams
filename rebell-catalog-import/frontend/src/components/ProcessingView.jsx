@@ -27,6 +27,18 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
   const [job, setJob] = useState({ status: 'queued', stage: 'extracting', log: [] })
   const [showLog, setShowLog] = useState(false)
   const logEndRef = useRef(null)
+  const doneRef = useRef(false)
+
+  function applyJobData(data) {
+    if (doneRef.current) return
+    if (data.status === 'completed' && data.catalog) {
+      doneRef.current = true
+      setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog: data.catalog }))
+    } else if (data.status === 'failed') {
+      doneRef.current = true
+      setJob(prev => ({ ...prev, status: 'failed' }))
+    }
+  }
 
   useEffect(() => {
     const es = new EventSource(`${API_BASE}/api/catalog/job/${jobId}/stream`)
@@ -42,18 +54,32 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
 
     es.addEventListener('done', () => {
       es.close()
-      // Fetch catalog via reliable GET rather than parsing large SSE payload
       fetch(`${API_BASE}/api/catalog/job/${jobId}`)
         .then(r => r.json())
-        .then(data => setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog: data.catalog })))
+        .then(applyJobData)
     })
 
     es.addEventListener('failed', () => {
-      setJob(prev => ({ ...prev, status: 'failed' }))
       es.close()
+      applyJobData({ status: 'failed' })
     })
 
-    return () => es.close()
+    // Fallback poll — catches completion if SSE drops and misses the done event
+    const poll = setInterval(() => {
+      if (doneRef.current) { clearInterval(poll); return }
+      fetch(`${API_BASE}/api/catalog/job/${jobId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'completed' || data.status === 'failed') {
+            clearInterval(poll)
+            es.close()
+            applyJobData(data)
+          }
+        })
+        .catch(() => {})
+    }, 5000)
+
+    return () => { es.close(); clearInterval(poll) }
   }, [jobId])
 
   useEffect(() => {
