@@ -49,7 +49,8 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
     })
 
     es.addEventListener('stage', e => {
-      setJob(prev => ({ ...prev, stage: e.data }))
+      const stage = JSON.parse(e.data)
+      setJob(prev => ({ ...prev, stage }))
     })
 
     es.addEventListener('done', () => {
