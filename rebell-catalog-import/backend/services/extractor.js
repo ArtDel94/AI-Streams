@@ -65,7 +65,7 @@ export async function extractFromUrl(url) {
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
     await page.setViewport({ width: 1280, height: 900 })
 
-    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
     await new Promise(r => setTimeout(r, 600)) // let deferred rendering finish
     const status = response?.status()
 
@@ -159,6 +159,9 @@ export async function extractFromUrl(url) {
     }
     return { text: null, error: `Could not load page: ${err.message}. Try downloading the menu as a PDF and uploading it instead.` }
   } finally {
-    if (browser) await browser.close().catch(() => {})
+    if (browser) await Promise.race([
+      browser.close(),
+      new Promise(r => setTimeout(r, 5000)),
+    ]).catch(() => {})
   }
 }
