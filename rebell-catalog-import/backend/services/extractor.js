@@ -9,21 +9,32 @@ puppeteerExtra.use(StealthPlugin())
 
 const STATIC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
+function withTimeout(promise, ms, msg) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
+  ])
+}
+
 async function launchBrowser() {
-  return puppeteerExtra.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-default-apps',
-      '--disable-background-networking',
-      '--no-first-run',
-      '--disable-background-timer-throttling',
-    ],
-  })
+  return withTimeout(
+    puppeteerExtra.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--disable-background-networking',
+        '--no-first-run',
+        '--disable-background-timer-throttling',
+      ],
+    }),
+    10000,
+    'Browser launch timed out'
+  )
 }
 
 export async function extractFromPdf(fileBuffer) {
@@ -190,6 +201,16 @@ async function fetchWithBrowser(url) {
 }
 
 export async function extractFromUrl(url) {
+  return withTimeout(_extractFromUrl(url), 25000, 'timeout')
+    .catch(err => {
+      if (err.message === 'timeout') {
+        return { text: null, error: 'Page took too long to load. Try downloading the menu as a PDF and uploading it instead.' }
+      }
+      return { text: null, error: `Could not load page: ${err.message}. Try downloading the menu as a PDF and uploading it instead.` }
+    })
+}
+
+async function _extractFromUrl(url) {
   // PDF URLs — download and parse directly
   if (url.split('?')[0].toLowerCase().endsWith('.pdf')) {
     try {
