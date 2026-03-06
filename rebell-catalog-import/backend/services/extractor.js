@@ -106,8 +106,9 @@ async function fetchStatic(url) {
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
     .replace(/&[a-z0-9#]+;/gi, ' ')
-    .replace(/[^\S\n]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[^\S\n]+/g, ' ')    // collapse inline whitespace
+    .replace(/^ +$/gm, '')         // remove lines that are only spaces
+    .replace(/\n{3,}/g, '\n\n')   // max 2 consecutive blank lines
     .trim()
 
   return { text, jsonLd: jsonLd.length ? jsonLd : null, statusCode: res.status }
