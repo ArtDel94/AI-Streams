@@ -117,7 +117,7 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
 
     await log(jobId, 'success', 'Done. Catalog ready.')
     await updateJob(jobId, { status: 'completed', stage: 'done', catalog })
-    await publishEvent(jobId, 'done', catalog)
+    await publishEvent(jobId, 'done', null) // signal only — frontend fetches catalog via GET
 
   } catch (err) {
     await log(jobId, 'error', `AI service error: ${err.message}`)
@@ -169,7 +169,7 @@ router.get('/job/:jobId/stream', async (req, res) => {
   send('stage', current.stage)
 
   if (current.status === 'completed') {
-    send('done', current.catalog)
+    send('done', null) // frontend fetches catalog via GET
     cleanup()
     return
   }

@@ -40,10 +40,12 @@ export default function ProcessingView({ jobId, onComplete, onNewImport }) {
       setJob(prev => ({ ...prev, stage: e.data }))
     })
 
-    es.addEventListener('done', e => {
-      const catalog = JSON.parse(e.data)
-      setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog }))
+    es.addEventListener('done', () => {
       es.close()
+      // Fetch catalog via reliable GET rather than parsing large SSE payload
+      fetch(`${API_BASE}/api/catalog/job/${jobId}`)
+        .then(r => r.json())
+        .then(data => setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog: data.catalog })))
     })
 
     es.addEventListener('failed', () => {
