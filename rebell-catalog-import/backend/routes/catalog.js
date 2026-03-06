@@ -38,7 +38,8 @@ router.post('/extract', upload.single('file'), async (req, res, next) => {
     res.json({ jobId, status: 'queued' })
 
     runJob(jobId, inputType, req.file, url, text, merchantName).catch(async err => {
-      await log(jobId, 'error', err.message || 'Unknown error')
+      console.error('[runJob unhandled]', err)
+      await log(jobId, 'error', err.message || String(err) || 'Unknown error')
       await updateJob(jobId, { status: 'failed' })
       await publishEvent(jobId, 'failed', null)
     })
@@ -94,7 +95,8 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
       throw new Error(`Unknown input type: ${inputType}`)
     }
   } catch (err) {
-    await log(jobId, 'error', err.message)
+    console.error('[extraction error]', err)
+    await log(jobId, 'error', err.message || String(err) || 'Unknown error')
     await updateJob(jobId, { status: 'failed' })
     await publishEvent(jobId, 'failed', null)
     return
@@ -120,7 +122,8 @@ async function runJob(jobId, inputType, file, url, text, merchantName) {
     await publishEvent(jobId, 'done', null) // signal only — frontend fetches catalog via GET
 
   } catch (err) {
-    await log(jobId, 'error', `AI service error: ${err.message}`)
+    console.error('[AI error]', err)
+    await log(jobId, 'error', `AI service error: ${err.message || String(err)}`)
     await updateJob(jobId, { status: 'failed' })
     await publishEvent(jobId, 'failed', null)
   }
