@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import InputPanel from './components/InputPanel.jsx'
 import ProcessingView from './components/ProcessingView.jsx'
 import CatalogView from './components/CatalogView.jsx'
@@ -8,17 +8,6 @@ export default function App() {
   const [view, setView] = useState('input')
   const [jobId, setJobId] = useState(null)
   const [catalog, setCatalog] = useState(null)
-
-  // Bookmarklet lands here with ?jobId=xxx — jump straight to processing
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const jid = params.get('jobId')
-    if (jid) {
-      setJobId(jid)
-      setView('processing')
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-  }, [])
 
   function handleJobStarted(id) {
     setJobId(id)

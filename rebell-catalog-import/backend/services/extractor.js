@@ -71,11 +71,7 @@ export async function extractFromUrl(url) {
 
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
-      const isDeliveryPlatform = /deliveroo|ubereats|justeat|glovo|doordash|thuisbezorgd|lieferando|wolt/.test(hostname)
-      if (status === 403 && isDeliveryPlatform) {
-        return { text: null, error: `${hostname} blocks automated access from servers. To import from ${hostname}: open the menu in your browser, select all text (Cmd+A / Ctrl+A), copy it, then paste it into the "Text" tab.` }
-      }
-      return { text: null, error: `${hostname} returned HTTP ${status}. The site may require a login or block automated access. Try copying the menu text and using the "Text" tab instead.` }
+      return { text: null, error: `${hostname} blocked access (HTTP ${status}). Try downloading the menu as a PDF and uploading it instead.` }
     }
 
     // Check if navigated to a PDF
@@ -159,9 +155,9 @@ export async function extractFromUrl(url) {
 
   } catch (err) {
     if (err.message?.includes('timeout')) {
-      return { text: null, error: `Page took too long to load. Try taking a screenshot and uploading it as an image instead.` }
+      return { text: null, error: `Page took too long to load. Try downloading the menu as a PDF and uploading it instead.` }
     }
-    return { text: null, error: `Could not load page: ${err.message}` }
+    return { text: null, error: `Could not load page: ${err.message}. Try downloading the menu as a PDF and uploading it instead.` }
   } finally {
     if (browser) await browser.close().catch(() => {})
   }

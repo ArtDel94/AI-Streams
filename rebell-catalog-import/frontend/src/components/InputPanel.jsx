@@ -41,7 +41,6 @@ export default function InputPanel({ onJobStarted }) {
     if (activeTab === 'image') return !!imageFile
     if (activeTab === 'url') return url.trim().startsWith('http://') || url.trim().startsWith('https://')
     if (activeTab === 'text') return text.trim().length > 10
-    if (activeTab === 'delivery') return false // bookmarklet tab has no extract button
     return false
   }
 
@@ -77,16 +76,11 @@ export default function InputPanel({ onJobStarted }) {
     }
   }
 
-  const DELIVERY_PLATFORMS = ['Deliveroo', 'UberEats', 'Glovo', 'Wolt', 'JustEat', 'Lieferando', 'Thuisbezorgd']
-
-  const bookmarklet = `javascript:(function(){var t=document.body.innerText;var j=[];document.querySelectorAll('script[type="application/ld+json"]').forEach(function(s){try{j.push(JSON.parse(s.textContent))}catch(e){}});var f=new FormData();f.append('inputType','text');f.append('text',t+(j.length?'\\n\\n---STRUCTURED_DATA_JSON_LD---\\n'+JSON.stringify(j):''));f.append('merchantName',document.title);fetch('${API_BASE}/api/catalog/extract',{method:'POST',body:f}).then(function(r){return r.json()}).then(function(d){if(d.jobId)window.location.href='${window.location.origin}/?jobId='+d.jobId;else alert('Import failed')}).catch(function(e){alert('Import failed: '+e.message)});})();`
-
   const tabs = [
-    { key: 'pdf',      label: '📄 PDF' },
-    { key: 'image',    label: '🖼️ Image / Doc' },
-    { key: 'url',      label: '🌐 Website' },
-    { key: 'text',     label: '⌨️ Manual' },
-    { key: 'delivery', label: '🛵 Delivery Apps' },
+    { key: 'pdf',   label: '📄 PDF' },
+    { key: 'image', label: '🖼️ Image / Doc' },
+    { key: 'url',   label: '🌐 Website' },
+    { key: 'text',  label: '⌨️ Manual' },
   ]
 
   return (
@@ -232,56 +226,6 @@ export default function InputPanel({ onJobStarted }) {
               </div>
             )}
 
-            {/* Delivery Apps tab */}
-            {activeTab === 'delivery' && (
-              <div>
-                <div className="text-center mb-5">
-                  <p className="text-sm text-gray-500 mb-1">Save this button to your browser's bookmark bar.</p>
-                  <p className="text-sm text-gray-500">Then open any menu on a delivery platform and click it — the catalog imports automatically.</p>
-                </div>
-
-                {/* Bookmarklet drag target */}
-                <div className="flex justify-center mb-6">
-                  <a
-                    href={bookmarklet}
-                    onClick={e => e.preventDefault()}
-                    draggable
-                    className="inline-flex items-center gap-2 px-5 py-3 bg-rebell-blue text-white text-sm font-bold rounded-xl shadow-lg shadow-rebell-blue/30 cursor-grab active:cursor-grabbing select-none"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M8 2v8M5 7l3 3 3-3" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M3 12h10" stroke="white" strokeWidth="1.6" strokeLinecap="round"/>
-                    </svg>
-                    Import to Rebell
-                  </a>
-                </div>
-
-                {/* Steps */}
-                <ol className="space-y-3 mb-5">
-                  {[
-                    { n: '1', text: 'Drag the button above to your browser\'s bookmarks bar' },
-                    { n: '2', text: 'Open any menu page on a delivery platform in your browser' },
-                    { n: '3', text: 'Click "Import to Rebell" in your bookmarks bar — done!' },
-                  ].map(step => (
-                    <li key={step.n} className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-rebell-light text-rebell-blue text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{step.n}</span>
-                      <span className="text-sm text-gray-600">{step.text}</span>
-                    </li>
-                  ))}
-                </ol>
-
-                {/* Supported platforms */}
-                <div>
-                  <p className="text-xs text-gray-400 mb-2 text-center">Works with</p>
-                  <div className="flex flex-wrap gap-1.5 justify-center">
-                    {DELIVERY_PLATFORMS.map(p => (
-                      <span key={p} className="text-xs bg-gray-50 text-gray-500 border border-gray-100 px-2.5 py-1 rounded-full">{p}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* File error */}
             {fileError && (
               <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
@@ -293,32 +237,30 @@ export default function InputPanel({ onJobStarted }) {
               </div>
             )}
 
-            {/* Merchant name + Extract button — hidden on delivery tab */}
-            {activeTab !== 'delivery' && (
-              <>
-                <div className="mt-5">
-                  <label className="block text-sm font-medium text-gray-500 mb-1.5">Merchant / Restaurant name <span className="text-gray-300">(optional)</span></label>
-                  <input
-                    type="text"
-                    value={merchantName}
-                    onChange={e => setMerchantName(e.target.value)}
-                    placeholder="e.g. Trattoria da Marco"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rebell-blue text-sm outline-none transition-colors"
-                  />
-                </div>
-                <button
-                  onClick={handleExtract}
-                  disabled={!isReady() || loading}
-                  className={`mt-5 w-full py-3.5 rounded-xl text-sm font-bold transition-all ${
-                    isReady() && !loading
-                      ? 'bg-rebell-blue hover:bg-rebell-dark text-white shadow-lg shadow-rebell-blue/25'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  {loading ? 'Starting...' : 'Extract Catalog'}
-                </button>
-              </>
-            )}
+            {/* Merchant name */}
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-gray-500 mb-1.5">Merchant / Restaurant name <span className="text-gray-300">(optional)</span></label>
+              <input
+                type="text"
+                value={merchantName}
+                onChange={e => setMerchantName(e.target.value)}
+                placeholder="e.g. Trattoria da Marco"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rebell-blue text-sm outline-none transition-colors"
+              />
+            </div>
+
+            {/* Extract button */}
+            <button
+              onClick={handleExtract}
+              disabled={!isReady() || loading}
+              className={`mt-5 w-full py-3.5 rounded-xl text-sm font-bold transition-all ${
+                isReady() && !loading
+                  ? 'bg-rebell-blue hover:bg-rebell-dark text-white shadow-lg shadow-rebell-blue/25'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              {loading ? 'Starting...' : 'Extract Catalog'}
+            </button>
           </div>
         </div>
       </div>
