@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+// SSE-based job tracking — no polling
 import RebellutionGame from './RebellutionGame.jsx'
 import { API_BASE } from '../api.js'
 
@@ -23,26 +24,34 @@ function parseItemCount(log) {
 }
 
 export default function ProcessingView({ jobId, onComplete, onNewImport }) {
-  const [job, setJob] = useState(null)
+  const [job, setJob] = useState({ status: 'queued', stage: 'extracting', log: [] })
   const [showLog, setShowLog] = useState(false)
-  const logEndRef  = useRef(null)
-  const intervalRef = useRef(null)
+  const logEndRef = useRef(null)
 
   useEffect(() => {
-    function poll() {
-      fetch(`${API_BASE}/api/catalog/job/${jobId}`)
-        .then(r => r.json())
-        .then(data => {
-          setJob(data)
-          if (data.status === 'completed' || data.status === 'failed') {
-            clearInterval(intervalRef.current)
-          }
-        })
-        .catch(console.error)
-    }
-    poll()
-    intervalRef.current = setInterval(poll, 800)
-    return () => clearInterval(intervalRef.current)
+    const es = new EventSource(`${API_BASE}/api/catalog/job/${jobId}/stream`)
+
+    es.addEventListener('log', e => {
+      const entry = JSON.parse(e.data)
+      setJob(prev => ({ ...prev, log: [...prev.log, entry] }))
+    })
+
+    es.addEventListener('stage', e => {
+      setJob(prev => ({ ...prev, stage: e.data }))
+    })
+
+    es.addEventListener('done', e => {
+      const catalog = JSON.parse(e.data)
+      setJob(prev => ({ ...prev, status: 'completed', stage: 'done', catalog }))
+      es.close()
+    })
+
+    es.addEventListener('failed', () => {
+      setJob(prev => ({ ...prev, status: 'failed' }))
+      es.close()
+    })
+
+    return () => es.close()
   }, [jobId])
 
   useEffect(() => {
