@@ -10,7 +10,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 const FOOTER_MARKERS = [
   'scopri deliveroo', 'scarica la app', '© deliveroo', '© uber',
-  'termini & condizioni', 'informativa sulla privacy', 'cookie',
+  'termini & condizioni', 'informativa sulla privacy',
+  'cookie policy', 'cookie notice', 'informativa cookie', 'consenso cookie',
+  'preferenze cookie', 'gestione cookie', 'we use cookies',
   'lavora con noi', 'diventa nostro partner', 'il carrello è vuoto',
   'vai al pagamento', 'assistenza clienti', 'note legali',
 ]
