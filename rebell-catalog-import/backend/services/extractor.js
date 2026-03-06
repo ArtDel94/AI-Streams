@@ -242,7 +242,9 @@ async function _extractFromUrl(url) {
 
   // Tier 1: fast static fetch (handles WordPress, static HTML, most restaurant sites)
   try {
+    console.log(`[extractor] Tier 1 static fetch: ${url}`)
     const staticResult = await fetchStatic(url)
+    console.log(`[extractor] Tier 1 result: textLen=${staticResult.text?.length}, isPdf=${staticResult.isPdf}`)
 
     if (staticResult.isPdf) {
       const result = await extractFromPdf(staticResult.buffer)
@@ -253,10 +255,13 @@ async function _extractFromUrl(url) {
     // Only use static result if it contains price-like patterns — otherwise
     // it's a JS-rendered shell (nav/boilerplate only) and we need Puppeteer
     const hasPrices = staticResult.text && /\d[\d,.]*\s*[€$£]|[€$£]\s*[\d,.]+/.test(staticResult.text)
+    console.log(`[extractor] Tier 1 hasPrices=${hasPrices}`)
     if (hasPrices && staticResult.text.length >= 500) {
+      console.log('[extractor] Using Tier 1 result')
       return { text: staticResult.text, jsonLd: staticResult.jsonLd, sourceUrl: url }
     }
   } catch (err) {
+    console.log(`[extractor] Tier 1 error: ${err.message} (status=${err.response?.status})`)
     const status = err.response?.status
     if (status && status >= 400) {
       const hostname = new URL(url).hostname
@@ -266,8 +271,10 @@ async function _extractFromUrl(url) {
   }
 
   // Tier 2: Puppeteer for JS-rendered SPAs
+  console.log('[extractor] Falling to Tier 2 Puppeteer')
   try {
     const result = await fetchWithBrowser(url)
+    console.log(`[extractor] Tier 2 result: textLen=${result.text?.length}, error=${result.error}`)
 
     if (result.error) return { text: null, error: result.error }
 
