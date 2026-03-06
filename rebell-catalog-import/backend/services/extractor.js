@@ -9,7 +9,17 @@ puppeteerExtra.use(StealthPlugin())
 async function launchBrowser() {
   return puppeteerExtra.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-default-apps',
+      '--disable-background-networking',
+      '--no-first-run',
+      '--disable-background-timer-throttling',
+    ],
   })
 }
 
@@ -65,8 +75,18 @@ export async function extractFromUrl(url) {
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
     await page.setViewport({ width: 1280, height: 900 })
 
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await new Promise(r => setTimeout(r, 600)) // let deferred rendering finish
+    // Block images, fonts, media — we only need text, not assets
+    await page.setRequestInterception(true)
+    page.on('request', req => {
+      if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+        req.abort()
+      } else {
+        req.continue()
+      }
+    })
+
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    await new Promise(r => setTimeout(r, 200)) // minimal wait for JS rendering
     const status = response?.status()
 
     if (status && status >= 400) {
@@ -89,9 +109,9 @@ export async function extractFromUrl(url) {
     // all snapshots and deduplicate at the BLOCK level (sliding window of 3 lines),
     // not line-by-line. This preserves richer occurrences (name+desc+price) even
     // when name also appeared alone in a featured section earlier.
-    const STEP = 900   // larger steps = fewer total scrolls
-    const PAUSE = 380  // was 800ms — halves scroll time
-    const MAX_STEPS = 60
+    const STEP = 1200  // large steps = fewer scrolls needed
+    const PAUSE = 100  // minimal pause between scrolls
+    const MAX_STEPS = 10 // most menus need < 5 scrolls
 
     const allSnapshots = []
     let lastLen = 0
@@ -101,10 +121,10 @@ export async function extractFromUrl(url) {
       const snapshot = await page.evaluate(() => document.body.innerText)
       allSnapshots.push(snapshot)
 
-      // Early exit: if content hasn't grown for 3 consecutive steps, we've loaded everything
+      // Early exit: content stable for 2 consecutive steps = fully loaded
       if (snapshot.length === lastLen) {
         stuckCount++
-        if (stuckCount >= 3) break
+        if (stuckCount >= 2) break
       } else {
         stuckCount = 0
         lastLen = snapshot.length
