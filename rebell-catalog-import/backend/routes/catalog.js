@@ -21,7 +21,13 @@ function stripFooterNoise(text) {
   let cutAt = lines.length
   for (let i = 0; i < lines.length; i++) {
     const lower = lines[i].toLowerCase()
-    if (FOOTER_MARKERS.some(m => lower.includes(m))) { cutAt = i; break }
+    if (FOOTER_MARKERS.some(m => lower.includes(m))) {
+      // Only cut if we already have substantial content — otherwise the marker
+      // is in a nav/header area and cutting would remove the entire menu
+      const charsBefore = lines.slice(0, i).join('\n').length
+      if (charsBefore >= 500) cutAt = i
+      break
+    }
   }
   return lines.slice(0, cutAt).join('\n')
 }
