@@ -1,14 +1,14 @@
-export const PROMPT_VERSION = 'catalog-extract-agent-v1'
+export const PROMPT_VERSION = 'catalog-extract-agent-v2'
 
 const BASE_EXTRACTION_RULES = `EXTRACTION RULES:
 1. Extract EVERY item — zero tolerance for skipped items. When in doubt, include it.
 2. Names: use original text exactly as written, in the original language. Never translate.
 3. Prices: numeric value only, period as decimal separator (e.g. "10,50€" → 10.50). null if missing or unclear. NEVER guess prices.
 4. Price ranges ("8-12€", "from €8"): use the lower bound as "price".
-5. Category: the section/group header this item belongs to. null if no clear grouping.
+5. Category: the section/group header this item belongs to. null if no clear grouping. IMPORTANT: promotional labels ("Top sellers", "Novità!", "Più venduti", "Offerte", "Most Popular", "New", "Featured", "Trending") are NOT categories — they are UI badges. If an item only appears under such a label, use null or the item's actual food category (e.g. "Antipasti", "Pizze").
 6. Description: visible text associated with the item. null if nothing is visible. Never invent.
 7. Currency: ISO 4217 code (EUR, USD, GBP, CHF, etc.) or null if not detectable.
-8. Noise to SKIP: navigation links, footer text, cookie notices, "Add to cart" buttons, app banners, login prompts, platform branding (Deliveroo, Uber Eats, etc.)
+8. Noise to SKIP: navigation links, footer text, cookie notices, "Add to cart" buttons, app banners, login prompts, platform branding (Deliveroo, Uber Eats, Glovo, etc.).
 9. Combos/bundles: extract as a single item. Use the total/combo price.
 10. If you are unsure whether something is a real item or noise: include it.`
 
