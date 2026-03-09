@@ -1,0 +1,26 @@
+{
+  "merchant_name": "Trattoria da Mario",
+  "currency": "EUR",
+  "categories": [
+    {
+      "name": "Antipasti",
+      "items": [
+        { "name": "Bruschetta al Pomodoro", "price": 5.50 },
+        { "name": "Tagliere di Salumi", "price": 12.00 }
+      ]
+    },
+    {
+      "name": "Primi Piatti",
+      "items": [
+        { "name": "Spaghetti alla Carbonara", "price": 13.50 },
+        { "name": "Risotto ai Funghi Porcini", "price": 15.00 }
+      ]
+    },
+    {
+      "name": "Secondi Piatti",
+      "items": [
+        { "name": "Tagliata di Manzo", "price": 22.00 }
+      ]
+    }
+  ]
+}
