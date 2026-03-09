@@ -233,6 +233,27 @@ export async function extractFromUrl(url) {
     })
 }
 
+// Domains known to be JavaScript SPAs — Tier 1 will only return a partial shell.
+// Always go straight to Puppeteer for these.
+const FORCE_TIER2_DOMAINS = [
+  'glovoapp.com',
+  'ubereats.com',
+  'deliveroo.com',
+  'justeat.com',
+  'just-eat.com',
+  'thuisbezorgd.nl',
+  'thefork.com',
+  'quandoo.com',
+  'yelp.com',
+]
+
+function isForceTier2(url) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '')
+    return FORCE_TIER2_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))
+  } catch { return false }
+}
+
 async function _extractFromUrl(url) {
   // PDF URLs — download and parse directly
   if (url.split('?')[0].toLowerCase().endsWith('.pdf')) {
@@ -245,6 +266,11 @@ async function _extractFromUrl(url) {
       return { text: null, error: `Could not download PDF: ${err.message}` }
     }
   }
+
+  // Skip Tier 1 for known JS SPAs — their static HTML is just a shell
+  if (isForceTier2(url)) {
+    console.log(`[extractor] Known SPA domain — skipping to Tier 2: ${url}`)
+  } else {
 
   // Tier 1: fast static fetch (handles WordPress, static HTML, most restaurant sites)
   try {
@@ -275,6 +301,8 @@ async function _extractFromUrl(url) {
     }
     // Network error or timeout — fall through to Puppeteer
   }
+
+  } // end Tier 1 block (skipped for known SPAs)
 
   // Tier 2: Puppeteer for JS-rendered SPAs
   console.log('[extractor] Falling to Tier 2 Puppeteer')
